@@ -3,7 +3,7 @@
 Ứng dụng chat Web PWA riêng tư dành cho 2 người, tối ưu cho iPhone (iOS 16.4+) hỗ trợ Web Push Notifications.
 
 ## Cài đặt trên iPhone (iOS 16.4+)
-1. Mở liên kết ứng dụng trên **Safari**: `https://<TEN_GITHUB>.github.io/dinhichat/`
+1. Mở liên kết ứng dụng trên **Safari**: `https://dylululu.github.io/dinhichat/`
 2. Bấm nút **Chia sẻ** (biểu tượng hình vuông có mũi tên hướng lên ở thanh công cụ dưới).
 3. Chọn **Thêm vào Màn hình chính** (Add to Home Screen).
 4. Ra màn hình chính, mở ứng dụng từ icon **DiNhiChat**.
