@@ -297,6 +297,57 @@
       padding: 0 4px;
     }
 
+    /* Image bubble */
+    .msg-image {
+      max-width: 100%;
+      border-radius: 14px;
+      display: block;
+      min-height: 150px;
+      background: #eee;
+      cursor: pointer;
+      object-fit: cover;
+    }
+
+    .msg-image-wrap {
+      padding: 4px;
+      border-radius: 18px;
+      overflow: hidden;
+      max-width: 220px;
+    }
+
+    .message-row.self .msg-image-wrap {
+      background: var(--primary-color);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message-row.other .msg-image-wrap {
+      background: var(--bubble-gray);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Image Overlay */
+    #img-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    #img-overlay.open {
+      display: flex;
+    }
+
+    #img-overlay img {
+      max-width: 95vw;
+      max-height: 92vh;
+      border-radius: 8px;
+      object-fit: contain;
+    }
+
     /* Chat Input */
     .chat-input-bar {
       padding: 10px 14px;
@@ -307,6 +358,7 @@
       gap: 8px;
       padding-bottom: calc(10px + env(safe-area-inset-bottom));
       flex-shrink: 0;
+      position: relative;
     }
 
     .chat-input {
@@ -336,6 +388,48 @@
 
     .btn-send:active {
       background-color: var(--primary-dark);
+    }
+
+    .btn-attach {
+      background: transparent;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      padding: 4px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    /* Attach menu */
+    .attach-menu {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 14px;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      overflow: hidden;
+      z-index: 10;
+      flex-direction: column;
+      min-width: 160px;
+    }
+
+    .attach-menu.open {
+      display: flex;
+    }
+
+    .attach-menu-item {
+      padding: 12px 16px;
+      font-size: 15px;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      text-align: left;
+    }
+
+    .attach-menu-item:active {
+      background: #f0f0f0;
     }
   </style>
 </head>
@@ -386,9 +480,24 @@
     </main>
 
     <footer class="chat-input-bar">
+      <!-- Attach menu -->
+      <div id="attach-menu" class="attach-menu">
+        <button class="attach-menu-item" id="btn-camera">📷 Chụp ảnh</button>
+        <button class="attach-menu-item" id="btn-gallery">🖼️ Thư viện</button>
+      </div>
+      <!-- Hidden file inputs -->
+      <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="file-gallery" accept="image/*" multiple style="display:none">
+
+      <button id="btn-attach" class="btn-attach" type="button">📎</button>
       <input type="text" id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off">
       <button id="btn-send" class="btn-send">Gửi</button>
     </footer>
+  </div>
+
+  <!-- Image full-screen overlay -->
+  <div id="img-overlay">
+    <img id="img-overlay-img" src="" alt="">
   </div>
 
   <!-- Scripts -->

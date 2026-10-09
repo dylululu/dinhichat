@@ -1,15 +1,14 @@
-// app.js - DiNhiChat client logic
+// app.js - DiNhiChat client logic v2 (image support)
 
 (function () {
   'use strict';
 
-  // Khởi tạo Supabase client
   const supabase = window.supabase.createClient(
     window.CONFIG.SUPABASE_URL,
     window.CONFIG.SUPABASE_ANON_KEY
   );
 
-  // DOM Elements
+  // DOM
   const authScreen = document.getElementById('auth-screen');
   const chatScreen = document.getElementById('chat-screen');
   const loginForm = document.getElementById('login-form');
@@ -27,19 +26,29 @@
   const messageInput = document.getElementById('message-input');
   const btnSend = document.getElementById('btn-send');
 
+  const btnAttach = document.getElementById('btn-attach');
+  const attachMenu = document.getElementById('attach-menu');
+  const btnCamera = document.getElementById('btn-camera');
+  const btnGallery = document.getElementById('btn-gallery');
+  const fileCamera = document.getElementById('file-camera');
+  const fileGallery = document.getElementById('file-gallery');
+
+  const imgOverlay = document.getElementById('img-overlay');
+  const imgOverlayImg = document.getElementById('img-overlay-img');
+
   let currentUser = null;
   let currentProfile = null;
   let realtimeChannel = null;
   const messageIds = new Set();
+  const signedUrlCache = new Map(); // image_path -> signed url
 
-  // Đăng ký Service Worker
+  // Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((err) => {
-      console.error('ServiceWorker registration failed:', err);
+      console.error('SW registration failed:', err);
     });
   }
 
-  // Kiểm tra Standalone (PWA trên iPhone hoặc trình duyệt khác)
   function isStandaloneMode() {
     return (
       window.navigator.standalone === true ||
@@ -47,7 +56,6 @@
     );
   }
 
-  // Chuyển đổi VAPID public key
   function urlB64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -59,13 +67,11 @@
     return outputArray;
   }
 
-  // Đăng ký và lưu Web Push Subscription
   async function subscribePush() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       alert('Trình duyệt không hỗ trợ Web Push.');
       return false;
     }
-
     try {
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
@@ -75,34 +81,23 @@
           applicationServerKey: urlB64ToUint8Array(window.CONFIG.VAPID_PUBLIC_KEY)
         });
       }
-
       if (currentUser && sub) {
         const { error } = await supabase
           .from('profiles')
           .update({ push_subscription: sub.toJSON() })
           .eq('id', currentUser.id);
-
-        if (error) {
-          console.error('Lỗi lưu subscription:', error);
-          return false;
-        }
+        if (error) { console.error('Lỗi lưu subscription:', error); return false; }
       }
       return true;
     } catch (err) {
-      console.error('Lỗi khi đăng ký push:', err);
+      console.error('Lỗi đăng ký push:', err);
       return false;
     }
   }
 
-  // Cập nhật trạng thái nút thông báo
   async function checkNotificationStatus() {
-    if (!('Notification' in window)) {
-      btnNotify.style.display = 'none';
-      return;
-    }
-
+    if (!('Notification' in window)) { btnNotify.style.display = 'none'; return; }
     const standalone = isStandaloneMode();
-
     if (!standalone) {
       btnNotify.style.display = 'inline-flex';
       btnNotify.onclick = () => {
@@ -111,12 +106,9 @@
       };
       return;
     }
-
     pwaInstallBanner.style.display = 'none';
-
     if (Notification.permission === 'granted') {
       btnNotify.style.display = 'none';
-      // Tự động đồng bộ lại subscription
       subscribePush();
     } else {
       btnNotify.style.display = 'inline-flex';
@@ -124,9 +116,7 @@
         const perm = await Notification.requestPermission();
         if (perm === 'granted') {
           const success = await subscribePush();
-          if (success) {
-            btnNotify.style.display = 'none';
-          }
+          if (success) btnNotify.style.display = 'none';
         } else {
           alert('Bạn đã từ chối quyền thông báo. Hãy kiểm tra Cài đặt của iPhone.');
         }
@@ -134,45 +124,216 @@
     }
   }
 
-  // Format thời gian HH:mm
   function formatTime(isoString) {
     if (!isoString) return '';
     const date = new Date(isoString);
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${hours}:${minutes}`;
+    return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
   }
 
-  // Render 1 tin nhắn vào DOM (chống trùng theo message.id và chống XSS bằng textContent)
-  function appendMessage(message, scroll = true) {
-    if (messageIds.has(message.id)) {
-      return;
-    }
+  // Get signed URL (cache 55min)
+  async function getSignedUrl(imagePath) {
+    if (signedUrlCache.has(imagePath)) return signedUrlCache.get(imagePath);
+    const { data, error } = await supabase.storage
+      .from('chat-images')
+      .createSignedUrl(imagePath, 3600);
+    if (error || !data) { console.error('Lỗi tạo signed url:', error); return null; }
+    signedUrlCache.set(imagePath, data.signedUrl);
+    // Expire cache after 55 minutes
+    setTimeout(() => signedUrlCache.delete(imagePath), 55 * 60 * 1000);
+    return data.signedUrl;
+  }
+
+  // Render message into DOM
+  async function appendMessage(message, scroll = true) {
+    if (messageIds.has(message.id)) return;
     messageIds.add(message.id);
 
     const isSelf = currentUser && message.sender_id === currentUser.id;
     const row = document.createElement('div');
-    row.className = `message-row ${isSelf ? 'self' : 'other'}`;
-    row.id = `msg-${message.id}`;
+    row.className = 'message-row ' + (isSelf ? 'self' : 'other');
+    row.id = 'msg-' + message.id;
 
-    const bubble = document.createElement('div');
-    bubble.className = 'message-bubble';
-    bubble.textContent = message.content;
+    // Image bubble
+    if (message.image_path) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg-image-wrap';
+
+      const img = document.createElement('img');
+      img.className = 'msg-image';
+      img.loading = 'lazy';
+      img.alt = 'ảnh';
+
+      // Load signed url async
+      getSignedUrl(message.image_path).then((url) => {
+        if (url) {
+          img.src = url;
+          img.onload = () => {
+            img.style.minHeight = '';
+            if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          };
+        }
+      });
+
+      // Click to open overlay
+      img.addEventListener('click', () => {
+        imgOverlayImg.src = img.src;
+        imgOverlay.classList.add('open');
+      });
+
+      wrap.appendChild(img);
+      row.appendChild(wrap);
+
+      // Caption if any
+      if (message.content) {
+        const caption = document.createElement('div');
+        caption.className = 'message-bubble';
+        caption.style.marginTop = '4px';
+        caption.textContent = message.content;
+        row.appendChild(caption);
+      }
+    } else {
+      // Text bubble
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+      bubble.textContent = message.content || '';
+      row.appendChild(bubble);
+    }
 
     const time = document.createElement('div');
     time.className = 'message-time';
     time.textContent = formatTime(message.created_at);
-
-    row.appendChild(bubble);
     row.appendChild(time);
-    messagesContainer.appendChild(row);
 
-    if (scroll) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    messagesContainer.appendChild(row);
+    if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  // Remove temp bubble by tempId
+  function removeTempBubble(tempId) {
+    const el = document.getElementById(tempId);
+    if (el) el.remove();
+  }
+
+  // Resize image via canvas max 1280px, JPEG 0.8
+  async function resizeImage(file) {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const maxSide = 1280;
+    let w = bitmap.width;
+    let h = bitmap.height;
+    if (w > maxSide || h > maxSide) {
+      if (w >= h) { h = Math.round(h * maxSide / w); w = maxSide; }
+      else { w = Math.round(w * maxSide / h); h = maxSide; }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+  }
+
+  // Upload + insert 1 image
+  async function uploadAndSendImage(file, captionText) {
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+
+    // Temp bubble
+    const tempRow = document.createElement('div');
+    tempRow.id = tempId;
+    tempRow.className = 'message-row self';
+    const tempBubble = document.createElement('div');
+    tempBubble.className = 'message-bubble';
+    tempBubble.style.fontStyle = 'italic';
+    tempBubble.style.opacity = '0.7';
+    tempBubble.textContent = 'Đang gửi ảnh...';
+    tempRow.appendChild(tempBubble);
+    messagesContainer.appendChild(tempRow);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    try {
+      const blob = await resizeImage(file);
+      const rand = Math.random().toString(36).slice(2, 6);
+      const path = `chat-images/${currentUser.id}/${Date.now()}-${rand}.jpg`;
+
+      const { error: upErr } = await supabase.storage
+        .from('chat-images')
+        .upload(path, blob, { contentType: 'image/jpeg' });
+
+      if (upErr) throw upErr;
+
+      const insertData = { image_path: path, sender_id: currentUser.id };
+      if (captionText) insertData.content = captionText;
+
+      const { error: insErr } = await supabase.from('messages').insert(insertData);
+      if (insErr) throw insErr;
+
+      removeTempBubble(tempId);
+    } catch (err) {
+      console.error('Lỗi gửi ảnh:', err);
+      // Replace temp bubble with error + retry
+      const errRow = document.getElementById(tempId);
+      if (errRow) {
+        errRow.innerHTML = '';
+        const errBubble = document.createElement('div');
+        errBubble.className = 'message-bubble';
+        errBubble.style.background = '#ffebee';
+        errBubble.style.color = '#c62828';
+
+        const errText = document.createElement('span');
+        errText.textContent = 'Gửi ảnh thất bại';
+        errBubble.appendChild(errText);
+
+        const retryBtn = document.createElement('button');
+        retryBtn.textContent = ' Thử lại';
+        retryBtn.style.cssText = 'margin-left:8px;background:transparent;border:none;color:#e91e63;font-weight:bold;cursor:pointer;font-size:13px;';
+        retryBtn.addEventListener('click', () => {
+          removeTempBubble(tempId);
+          uploadAndSendImage(file, captionText);
+        });
+        errBubble.appendChild(retryBtn);
+        errRow.appendChild(errBubble);
+      }
     }
   }
 
-  // Tải 100 tin nhắn gần nhất
+  // Handle file(s) selected
+  async function handleFiles(files) {
+    if (!files || files.length === 0) return;
+    const caption = messageInput.value.trim();
+    if (caption) messageInput.value = '';
+    for (let i = 0; i < files.length; i++) {
+      await uploadAndSendImage(files[i], i === 0 ? caption : '');
+    }
+  }
+
+  // Attach menu toggle
+  btnAttach.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachMenu.classList.toggle('open');
+  });
+
+  document.addEventListener('click', () => attachMenu.classList.remove('open'));
+  attachMenu.addEventListener('click', (e) => e.stopPropagation());
+
+  btnCamera.addEventListener('click', () => {
+    attachMenu.classList.remove('open');
+    fileCamera.value = '';
+    fileCamera.click();
+  });
+
+  btnGallery.addEventListener('click', () => {
+    attachMenu.classList.remove('open');
+    fileGallery.value = '';
+    fileGallery.click();
+  });
+
+  fileCamera.addEventListener('change', () => handleFiles(fileCamera.files));
+  fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
+
+  // Image overlay close
+  imgOverlay.addEventListener('click', () => {
+    imgOverlay.classList.remove('open');
+    imgOverlayImg.src = '';
+  });
+
   async function loadRecentMessages() {
     messagesContainer.innerHTML = '';
     messageIds.clear();
@@ -183,24 +344,19 @@
       .order('created_at', { ascending: false })
       .limit(100);
 
-    if (error) {
-      console.error('Lỗi tải tin nhắn:', error);
-      return;
-    }
+    if (error) { console.error('Lỗi tải tin nhắn:', error); return; }
 
     if (data && data.length > 0) {
-      // Đảo ngược để hiển thị theo thứ tự thời gian tăng dần
       const sorted = data.reverse();
-      sorted.forEach((msg) => appendMessage(msg, false));
+      for (const msg of sorted) {
+        await appendMessage(msg, false);
+      }
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
   }
 
-  // Thiết lập kênh Realtime lắng nghe tin nhắn mới
   function setupRealtime() {
-    if (realtimeChannel) {
-      supabase.removeChannel(realtimeChannel);
-    }
+    if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 
     realtimeChannel = supabase
       .channel('public:messages')
@@ -208,17 +364,12 @@
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          if (payload.new) {
-            appendMessage(payload.new, true);
-          }
+          if (payload.new) appendMessage(payload.new, true);
         }
       )
-      .subscribe((status) => {
-        console.log('Realtime status:', status);
-      });
+      .subscribe((status) => console.log('Realtime status:', status));
   }
 
-  // Gửi tin nhắn
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
@@ -240,13 +391,11 @@
     }
   }
 
-  // Khởi tạo màn hình Chat sau khi đăng nhập thành công
   async function initChat(user) {
     currentUser = user;
     authScreen.classList.remove('active');
     chatScreen.classList.add('active');
 
-    // Lấy thông tin profile
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
@@ -255,8 +404,7 @@
 
     if (profile) {
       currentProfile = profile;
-      const initial = (profile.name || 'DN').substring(0, 2).toUpperCase();
-      userAvatar.textContent = initial;
+      userAvatar.textContent = (profile.name || 'DN').substring(0, 2).toUpperCase();
       chatTitle.textContent = profile.name || 'DiNhiChat';
     }
 
@@ -265,31 +413,23 @@
     checkNotificationStatus();
   }
 
-  // Khởi tạo màn hình đăng nhập
   function showAuth() {
     currentUser = null;
     currentProfile = null;
-    if (realtimeChannel) {
-      supabase.removeChannel(realtimeChannel);
-      realtimeChannel = null;
-    }
+    if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
   }
 
-  // Form đăng nhập
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.textContent = '';
     btnLogin.disabled = true;
     btnLogin.textContent = 'Đang đăng nhập...';
 
-    const email = loginEmail.value.trim();
-    const password = loginPassword.value;
-
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
+      email: loginEmail.value.trim(),
+      password: loginPassword.value
     });
 
     btnLogin.disabled = false;
@@ -297,48 +437,31 @@
 
     if (error) {
       loginError.textContent = error.message === 'Invalid login credentials'
-        ? 'Sai email hoặc mật khẩu.'
-        : error.message;
+        ? 'Sai email hoặc mật khẩu.' : error.message;
       return;
     }
-
-    if (data.user) {
-      initChat(data.user);
-    }
+    if (data.user) initChat(data.user);
   });
 
-  // Đăng xuất
   btnLogout.addEventListener('click', async () => {
     await supabase.auth.signOut();
     showAuth();
   });
 
-  // Gửi tin nhắn qua Enter hoặc nút Gửi
   btnSend.addEventListener('click', sendMessage);
   messageInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
   });
 
-  // Kiểm tra phiên đăng nhập ban đầu
   supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session && session.user) {
-      initChat(session.user);
-    } else {
-      showAuth();
-    }
+    if (session && session.user) initChat(session.user);
+    else showAuth();
   });
 
-  // Lắng nghe thay đổi trạng thái xác thực
   supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT') {
-      showAuth();
-    } else if (event === 'SIGNED_IN' && session?.user) {
-      if (!currentUser || currentUser.id !== session.user.id) {
-        initChat(session.user);
-      }
+    if (event === 'SIGNED_OUT') showAuth();
+    else if (event === 'SIGNED_IN' && session?.user) {
+      if (!currentUser || currentUser.id !== session.user.id) initChat(session.user);
     }
   });
 })();

@@ -6,7 +6,7 @@ Deno.serve(async (req: Request) => {
     const payload = await req.json();
     const record = payload.record || payload;
 
-    if (!record || !record.sender_id || !record.content) {
+    if (!record || !record.sender_id) {
       return new Response(JSON.stringify({ error: "Missing record fields" }), {
         headers: { "Content-Type": "application/json" },
         status: 400
@@ -27,66 +27,41 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get sender name
-    const { data: senderProfile, error: senderErr } = await supabase
+    const { data: senderProfile } = await supabase
       .from("profiles")
       .select("name")
       .eq("id", record.sender_id)
       .single();
 
-    if (senderErr) {
-      console.error("Error fetching sender profile:", senderErr);
-    }
     const senderName = senderProfile?.name || "Tin nhắn mới";
 
-    // Get push_subscription of other profiles (not sender) where push_subscription is not null
-    const { data: targetProfiles, error: fetchErr } = await supabase
+    // body: content if text, else image placeholder
+    const body = record.content || "📷 Đã gửi một ảnh";
+
+    const { data: targetProfiles } = await supabase
       .from("profiles")
       .select("id, push_subscription")
       .neq("id", record.sender_id)
       .not("push_subscription", "is", null);
 
-    if (fetchErr) {
-      console.error("Error fetching target profiles:", fetchErr);
-      return new Response(JSON.stringify({ error: fetchErr.message }), {
-        headers: { "Content-Type": "application/json" },
-        status: 500
-      });
-    }
-
     if (!targetProfiles || targetProfiles.length === 0) {
-      return new Response(JSON.stringify({ message: "No subscribers to notify" }), {
+      return new Response(JSON.stringify({ message: "No subscribers" }), {
         headers: { "Content-Type": "application/json" },
         status: 200
       });
     }
 
-    const pushPayload = JSON.stringify({
-      title: senderName,
-      body: record.content
-    });
+    const pushPayload = JSON.stringify({ title: senderName, body });
 
     for (const profile of targetProfiles) {
       const sub = profile.push_subscription;
       if (!sub) continue;
-
       try {
-        await webpush.sendNotification(sub, pushPayload, {
-          urgency: "high",
-          TTL: 3600
-        });
+        await webpush.sendNotification(sub, pushPayload, { urgency: "high", TTL: 3600 });
       } catch (err: any) {
-        console.error("Error sending push to profile", profile.id, err);
-        // On 404 or 410 (expired / unsubscribed), clear push_subscription
+        console.error("Push error for profile", profile.id, err);
         if (err.statusCode === 404 || err.statusCode === 410) {
-          console.warn(`Subscription 404/410 for profile ${profile.id}, resetting to null`);
-          const { error: updateErr } = await supabase
-            .from("profiles")
-            .update({ push_subscription: null })
-            .eq("id", profile.id);
-          if (updateErr) {
-            console.error("Failed to reset subscription for profile", profile.id, updateErr);
-          }
+          await supabase.from("profiles").update({ push_subscription: null }).eq("id", profile.id);
         }
       }
     }
@@ -96,7 +71,7 @@ Deno.serve(async (req: Request) => {
       status: 200
     });
   } catch (err: any) {
-    console.error("Unhandled error in notify function:", err);
+    console.error("Unhandled error:", err);
     return new Response(JSON.stringify({ error: err.message || String(err) }), {
       headers: { "Content-Type": "application/json" },
       status: 500
