@@ -1,4 +1,4 @@
-// app.js - DiNhiChat client logic v2 (image support)
+// app.js - DiNhiChat client logic v3 (low-latency sync)
 
 (function () {
   'use strict';
@@ -40,15 +40,31 @@
   let currentProfile = null;
   let realtimeChannel = null;
   const messageIds = new Set();
-  const signedUrlCache = new Map(); // image_path -> signed url
+  const signedUrlCache = new Map();
 
-  // Service Worker
+  // Cache keys
+  const CACHE_MSGS_KEY = 'dinhichat_msgs_cache';
+  const CACHE_PROFILES_KEY = 'dinhichat_profiles_cache';
+
+  // ─── LocalStorage helpers ────────────────────────────────────────────────────
+  function lsGet(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
+  }
+  function lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }
+
+  // ─── Service Worker ──────────────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((err) => {
       console.error('SW registration failed:', err);
     });
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'sync') syncMessages();
+    });
   }
 
+  // ─── Utility ─────────────────────────────────────────────────────────────────
   function isStandaloneMode() {
     return (
       window.navigator.standalone === true ||
@@ -61,16 +77,20 @@
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
     const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
     return outputArray;
   }
 
+  function formatTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+  }
+
+  // ─── Push subscription ───────────────────────────────────────────────────────
   async function subscribePush() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      alert('Trình duyệt không hỗ trợ Web Push.');
-      return false;
+      alert('Trình duyệt không hỗ trợ Web Push.'); return false;
     }
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -82,41 +102,33 @@
         });
       }
       if (currentUser && sub) {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ push_subscription: sub.toJSON() })
-          .eq('id', currentUser.id);
+        const { error } = await supabase.from('profiles')
+          .update({ push_subscription: sub.toJSON() }).eq('id', currentUser.id);
         if (error) { console.error('Lỗi lưu subscription:', error); return false; }
       }
       return true;
-    } catch (err) {
-      console.error('Lỗi đăng ký push:', err);
-      return false;
-    }
+    } catch (err) { console.error('Lỗi đăng ký push:', err); return false; }
   }
 
   async function checkNotificationStatus() {
     if (!('Notification' in window)) { btnNotify.style.display = 'none'; return; }
-    const standalone = isStandaloneMode();
-    if (!standalone) {
+    if (!isStandaloneMode()) {
       btnNotify.style.display = 'inline-flex';
       btnNotify.onclick = () => {
         pwaInstallBanner.style.display = 'block';
-        alert('Để nhận thông báo trên iPhone, hãy bấm nút Chia sẻ (biểu tượng mũi tên ở thanh dưới Safari) rồi chọn "Thêm vào Màn hình chính".');
+        alert('Để nhận thông báo trên iPhone, hãy bấm nút Chia sẻ rồi chọn "Thêm vào Màn hình chính".');
       };
       return;
     }
     pwaInstallBanner.style.display = 'none';
     if (Notification.permission === 'granted') {
-      btnNotify.style.display = 'none';
-      subscribePush();
+      btnNotify.style.display = 'none'; subscribePush();
     } else {
       btnNotify.style.display = 'inline-flex';
       btnNotify.onclick = async () => {
         const perm = await Notification.requestPermission();
         if (perm === 'granted') {
-          const success = await subscribePush();
-          if (success) btnNotify.style.display = 'none';
+          if (await subscribePush()) btnNotify.style.display = 'none';
         } else {
           alert('Bạn đã từ chối quyền thông báo. Hãy kiểm tra Cài đặt của iPhone.');
         }
@@ -124,27 +136,33 @@
     }
   }
 
-  function formatTime(isoString) {
-    if (!isoString) return '';
-    const date = new Date(isoString);
-    return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
-  }
-
-  // Get signed URL (cache 55min)
+  // ─── Signed URL cache ────────────────────────────────────────────────────────
   async function getSignedUrl(imagePath) {
     if (signedUrlCache.has(imagePath)) return signedUrlCache.get(imagePath);
-    const { data, error } = await supabase.storage
-      .from('chat-images')
-      .createSignedUrl(imagePath, 3600);
-    if (error || !data) { console.error('Lỗi tạo signed url:', error); return null; }
+    const { data, error } = await supabase.storage.from('chat-images').createSignedUrl(imagePath, 3600);
+    if (error || !data) { console.error('Lỗi signed url:', error); return null; }
     signedUrlCache.set(imagePath, data.signedUrl);
-    // Expire cache after 55 minutes
     setTimeout(() => signedUrlCache.delete(imagePath), 55 * 60 * 1000);
     return data.signedUrl;
   }
 
-  // Render message into DOM
-  async function appendMessage(message, scroll = true) {
+  // ─── Save messages to cache ──────────────────────────────────────────────────
+  function saveMsgsToCache() {
+    // Collect up to 100 rendered message IDs (in order)
+    try {
+      const rows = messagesContainer.querySelectorAll('.message-row[data-msg]');
+      const arr = [];
+      rows.forEach((r) => {
+        try { arr.push(JSON.parse(r.dataset.msg)); } catch {}
+      });
+      const last100 = arr.slice(-100);
+      lsSet(CACHE_MSGS_KEY, last100);
+    } catch {}
+  }
+
+  // ─── Render one message (addMsg) ─────────────────────────────────────────────
+  async function addMsg(message, scroll = true) {
+    if (!message || !message.id) return;
     if (messageIds.has(message.id)) return;
     messageIds.add(message.id);
 
@@ -152,18 +170,16 @@
     const row = document.createElement('div');
     row.className = 'message-row ' + (isSelf ? 'self' : 'other');
     row.id = 'msg-' + message.id;
+    // Store raw msg JSON on element for cache
+    try { row.dataset.msg = JSON.stringify(message); } catch {}
 
-    // Image bubble
     if (message.image_path) {
       const wrap = document.createElement('div');
       wrap.className = 'msg-image-wrap';
-
       const img = document.createElement('img');
       img.className = 'msg-image';
       img.loading = 'lazy';
       img.alt = 'ảnh';
-
-      // Load signed url async
       getSignedUrl(message.image_path).then((url) => {
         if (url) {
           img.src = url;
@@ -173,17 +189,12 @@
           };
         }
       });
-
-      // Click to open overlay
       img.addEventListener('click', () => {
         imgOverlayImg.src = img.src;
         imgOverlay.classList.add('open');
       });
-
       wrap.appendChild(img);
       row.appendChild(wrap);
-
-      // Caption if any
       if (message.content) {
         const caption = document.createElement('div');
         caption.className = 'message-bubble';
@@ -192,7 +203,6 @@
         row.appendChild(caption);
       }
     } else {
-      // Text bubble
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble';
       bubble.textContent = message.content || '';
@@ -208,34 +218,85 @@
     if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  // Remove temp bubble by tempId
+  // ─── Sync 50 latest messages ─────────────────────────────────────────────────
+  async function syncMessages() {
+    if (!currentUser) return;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) { console.error('syncMessages error:', error); return; }
+    if (data && data.length > 0) {
+      const sorted = data.reverse();
+      for (const msg of sorted) await addMsg(msg, false);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      saveMsgsToCache();
+    }
+  }
+
+  // ─── Subscribe realtime ──────────────────────────────────────────────────────
+  function subscribeRoom() {
+    if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+
+    realtimeChannel = supabase
+      .channel('public:messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        async (payload) => {
+          if (payload.new) {
+            await addMsg(payload.new, true);
+            saveMsgsToCache();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime status:', status);
+        if (status === 'SUBSCRIBED') {
+          syncMessages();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setTimeout(subscribeRoom, 1500);
+        }
+      });
+  }
+
+  // ─── Load from cache then sync ───────────────────────────────────────────────
+  async function loadFromCacheThenSync() {
+    // Draw from cache immediately
+    const cached = lsGet(CACHE_MSGS_KEY);
+    if (cached && cached.length > 0) {
+      for (const msg of cached) await addMsg(msg, false);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    // Then fetch from server
+    await syncMessages();
+  }
+
+  // ─── Temp bubble helpers ─────────────────────────────────────────────────────
   function removeTempBubble(tempId) {
     const el = document.getElementById(tempId);
     if (el) el.remove();
   }
 
-  // Resize image via canvas max 1280px, JPEG 0.8
+  // ─── Image resize ─────────────────────────────────────────────────────────────
   async function resizeImage(file) {
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
     const maxSide = 1280;
-    let w = bitmap.width;
-    let h = bitmap.height;
+    let w = bitmap.width, h = bitmap.height;
     if (w > maxSide || h > maxSide) {
       if (w >= h) { h = Math.round(h * maxSide / w); w = maxSide; }
       else { w = Math.round(w * maxSide / h); h = maxSide; }
     }
     const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = w; canvas.height = h;
     canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.8));
   }
 
-  // Upload + insert 1 image
+  // ─── Upload image ─────────────────────────────────────────────────────────────
   async function uploadAndSendImage(file, captionText) {
     const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-
-    // Temp bubble
     const tempRow = document.createElement('div');
     tempRow.id = tempId;
     tempRow.className = 'message-row self';
@@ -252,23 +313,15 @@
       const blob = await resizeImage(file);
       const rand = Math.random().toString(36).slice(2, 6);
       const path = `chat-images/${currentUser.id}/${Date.now()}-${rand}.jpg`;
-
-      const { error: upErr } = await supabase.storage
-        .from('chat-images')
-        .upload(path, blob, { contentType: 'image/jpeg' });
-
+      const { error: upErr } = await supabase.storage.from('chat-images').upload(path, blob, { contentType: 'image/jpeg' });
       if (upErr) throw upErr;
-
       const insertData = { image_path: path, sender_id: currentUser.id };
       if (captionText) insertData.content = captionText;
-
       const { error: insErr } = await supabase.from('messages').insert(insertData);
       if (insErr) throw insErr;
-
       removeTempBubble(tempId);
     } catch (err) {
       console.error('Lỗi gửi ảnh:', err);
-      // Replace temp bubble with error + retry
       const errRow = document.getElementById(tempId);
       if (errRow) {
         errRow.innerHTML = '';
@@ -276,25 +329,19 @@
         errBubble.className = 'message-bubble';
         errBubble.style.background = '#ffebee';
         errBubble.style.color = '#c62828';
-
         const errText = document.createElement('span');
         errText.textContent = 'Gửi ảnh thất bại';
         errBubble.appendChild(errText);
-
         const retryBtn = document.createElement('button');
         retryBtn.textContent = ' Thử lại';
         retryBtn.style.cssText = 'margin-left:8px;background:transparent;border:none;color:#e91e63;font-weight:bold;cursor:pointer;font-size:13px;';
-        retryBtn.addEventListener('click', () => {
-          removeTempBubble(tempId);
-          uploadAndSendImage(file, captionText);
-        });
+        retryBtn.addEventListener('click', () => { removeTempBubble(tempId); uploadAndSendImage(file, captionText); });
         errBubble.appendChild(retryBtn);
         errRow.appendChild(errBubble);
       }
     }
   }
 
-  // Handle file(s) selected
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
     const caption = messageInput.value.trim();
@@ -304,154 +351,84 @@
     }
   }
 
-  // Attach menu toggle
-  btnAttach.addEventListener('click', (e) => {
-    e.stopPropagation();
-    attachMenu.classList.toggle('open');
-  });
-
+  // ─── Attach menu ─────────────────────────────────────────────────────────────
+  btnAttach.addEventListener('click', (e) => { e.stopPropagation(); attachMenu.classList.toggle('open'); });
   document.addEventListener('click', () => attachMenu.classList.remove('open'));
   attachMenu.addEventListener('click', (e) => e.stopPropagation());
-
-  btnCamera.addEventListener('click', () => {
-    attachMenu.classList.remove('open');
-    fileCamera.value = '';
-    fileCamera.click();
-  });
-
-  btnGallery.addEventListener('click', () => {
-    attachMenu.classList.remove('open');
-    fileGallery.value = '';
-    fileGallery.click();
-  });
-
+  btnCamera.addEventListener('click', () => { attachMenu.classList.remove('open'); fileCamera.value = ''; fileCamera.click(); });
+  btnGallery.addEventListener('click', () => { attachMenu.classList.remove('open'); fileGallery.value = ''; fileGallery.click(); });
   fileCamera.addEventListener('change', () => handleFiles(fileCamera.files));
   fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
 
-  // Image overlay close
-  imgOverlay.addEventListener('click', () => {
-    imgOverlay.classList.remove('open');
-    imgOverlayImg.src = '';
-  });
+  // ─── Image overlay ────────────────────────────────────────────────────────────
+  imgOverlay.addEventListener('click', () => { imgOverlay.classList.remove('open'); imgOverlayImg.src = ''; });
 
-  async function loadRecentMessages() {
-    messagesContainer.innerHTML = '';
-    messageIds.clear();
-
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if (error) { console.error('Lỗi tải tin nhắn:', error); return; }
-
-    if (data && data.length > 0) {
-      const sorted = data.reverse();
-      for (const msg of sorted) {
-        await appendMessage(msg, false);
-      }
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
-  }
-
-  function setupRealtime() {
-    if (realtimeChannel) supabase.removeChannel(realtimeChannel);
-
-    realtimeChannel = supabase
-      .channel('public:messages')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (payload.new) appendMessage(payload.new, true);
-        }
-      )
-      .subscribe((status) => console.log('Realtime status:', status));
-  }
-
+  // ─── Send text message ────────────────────────────────────────────────────────
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
-
     messageInput.value = '';
     btnSend.disabled = true;
-
-    const { error } = await supabase.from('messages').insert({
-      content: text,
-      sender_id: currentUser.id
-    });
-
+    const { error } = await supabase.from('messages').insert({ content: text, sender_id: currentUser.id });
     btnSend.disabled = false;
     messageInput.focus();
-
-    if (error) {
-      console.error('Lỗi gửi tin nhắn:', error);
-      alert('Không gửi được tin nhắn: ' + error.message);
-    }
+    if (error) { console.error('Lỗi gửi:', error); alert('Không gửi được tin nhắn: ' + error.message); }
   }
 
+  // ─── Visibility / focus sync ──────────────────────────────────────────────────
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentUser) syncMessages();
+  });
+  window.addEventListener('pageshow', () => { if (currentUser) syncMessages(); });
+  window.addEventListener('focus', () => { if (currentUser) syncMessages(); });
+
+  // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
     currentUser = user;
     authScreen.classList.remove('active');
     chatScreen.classList.add('active');
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
+    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     if (profile) {
       currentProfile = profile;
       userAvatar.textContent = (profile.name || 'DN').substring(0, 2).toUpperCase();
       chatTitle.textContent = profile.name || 'DiNhiChat';
     }
 
-    await loadRecentMessages();
-    setupRealtime();
+    await loadFromCacheThenSync();
+    subscribeRoom();
     checkNotificationStatus();
   }
 
   function showAuth() {
-    currentUser = null;
-    currentProfile = null;
+    currentUser = null; currentProfile = null;
     if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
   }
 
+  // ─── Login form ───────────────────────────────────────────────────────────────
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginError.textContent = '';
     btnLogin.disabled = true;
     btnLogin.textContent = 'Đang đăng nhập...';
-
     const { data, error } = await supabase.auth.signInWithPassword({
       email: loginEmail.value.trim(),
       password: loginPassword.value
     });
-
     btnLogin.disabled = false;
     btnLogin.textContent = 'Đăng nhập';
-
     if (error) {
-      loginError.textContent = error.message === 'Invalid login credentials'
-        ? 'Sai email hoặc mật khẩu.' : error.message;
+      loginError.textContent = error.message === 'Invalid login credentials' ? 'Sai email hoặc mật khẩu.' : error.message;
       return;
     }
     if (data.user) initChat(data.user);
   });
 
-  btnLogout.addEventListener('click', async () => {
-    await supabase.auth.signOut();
-    showAuth();
-  });
-
+  btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
   btnSend.addEventListener('click', sendMessage);
-  messageInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
-  });
+  messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
 
   supabase.auth.getSession().then(({ data: { session } }) => {
     if (session && session.user) initChat(session.user);

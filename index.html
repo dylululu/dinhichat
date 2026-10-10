@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="DiNhiChat">
@@ -330,7 +332,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.92);
+      background: rgba(0, 0, 0, 0.92);
       z-index: 999;
       align-items: center;
       justify-content: center;
@@ -408,7 +410,7 @@
       left: 14px;
       background: #fff;
       border-radius: 14px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
       overflow: hidden;
       z-index: 10;
       flex-direction: column;
@@ -431,8 +433,35 @@
     .attach-menu-item:active {
       background: #f0f0f0;
     }
+
+    .w {
+      display: flex;
+      flex-direction: column;
+      max-width: 75%;
+    }
+
+    .wm {
+      align-self: flex-end;
+      align-items: flex-end;
+    }
+
+    .wt {
+      align-self: flex-start;
+      align-items: flex-start;
+    }
+
+    .w .b {
+      max-width: 100%;
+    }
+
+    .nm {
+      font-size: 12px;
+      color: #888;
+      margin: 0 6px 2px;
+    }
   </style>
 </head>
+
 <body>
   <!-- Auth Screen -->
   <div id="auth-screen" class="screen active">
@@ -443,11 +472,13 @@
       <form id="login-form">
         <div class="input-group">
           <label for="login-email">Email</label>
-          <input type="email" id="login-email" class="input-field" placeholder="email@example.com" required autocomplete="username">
+          <input type="email" id="login-email" class="input-field" placeholder="email@example.com" required
+            autocomplete="username">
         </div>
         <div class="input-group">
           <label for="login-password">Mật khẩu</label>
-          <input type="password" id="login-password" class="input-field" placeholder="Mật khẩu" required autocomplete="current-password">
+          <input type="password" id="login-password" class="input-field" placeholder="Mật khẩu" required
+            autocomplete="current-password">
         </div>
         <button type="submit" id="btn-login" class="btn">Đăng nhập</button>
         <div id="login-error" class="auth-error"></div>
@@ -472,7 +503,8 @@
     </header>
 
     <div id="pwa-install-banner" class="notice-banner">
-      Để nhận thông báo trên iPhone: Bấm nút <strong>Chia sẻ</strong> (biểu tượng hộp có mũi tên) → <strong>Thêm vào Màn hình chính</strong>.
+      Để nhận thông báo trên iPhone: Bấm nút <strong>Chia sẻ</strong> (biểu tượng hộp có mũi tên) → <strong>Thêm vào Màn
+        hình chính</strong>.
     </div>
 
     <main class="chat-messages" id="messages-container">
@@ -505,4 +537,5 @@
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>
