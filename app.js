@@ -367,16 +367,24 @@
   }
 
   // ─── Attach menu ─────────────────────────────────────────────────────────────
-  btnAttach.addEventListener('click', (e) => { e.stopPropagation(); attachMenu.classList.toggle('open'); });
-  document.addEventListener('click', () => attachMenu.classList.remove('open'));
-  attachMenu.addEventListener('click', (e) => e.stopPropagation());
-  btnCamera.addEventListener('click', () => { attachMenu.classList.remove('open'); fileCamera.value = ''; fileCamera.click(); });
-  btnGallery.addEventListener('click', () => { attachMenu.classList.remove('open'); fileGallery.value = ''; fileGallery.click(); });
-  fileCamera.addEventListener('change', () => handleFiles(fileCamera.files));
-  fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
+  if (btnAttach && attachMenu) {
+    btnAttach.addEventListener('click', (e) => { e.stopPropagation(); attachMenu.classList.toggle('open'); });
+    document.addEventListener('click', () => attachMenu.classList.remove('open'));
+    attachMenu.addEventListener('click', (e) => e.stopPropagation());
+  }
+  if (btnCamera && fileCamera) {
+    btnCamera.addEventListener('click', () => { if (attachMenu) attachMenu.classList.remove('open'); fileCamera.value = ''; fileCamera.click(); });
+    fileCamera.addEventListener('change', () => handleFiles(fileCamera.files));
+  }
+  if (btnGallery && fileGallery) {
+    btnGallery.addEventListener('click', () => { if (attachMenu) attachMenu.classList.remove('open'); fileGallery.value = ''; fileGallery.click(); });
+    fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
+  }
 
   // ─── Image overlay ────────────────────────────────────────────────────────────
-  imgOverlay.addEventListener('click', () => { imgOverlay.classList.remove('open'); imgOverlayImg.src = ''; });
+  if (imgOverlay && imgOverlayImg) {
+    imgOverlay.addEventListener('click', () => { imgOverlay.classList.remove('open'); imgOverlayImg.src = ''; });
+  }
 
   // ─── Send text message ────────────────────────────────────────────────────────
   async function sendMessage() {
@@ -408,20 +416,24 @@
 
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
-    currentUser = user;
-    authScreen.classList.remove('active');
-    chatScreen.classList.add('active');
+    try {
+      currentUser = user;
+      authScreen.classList.remove('active');
+      chatScreen.classList.add('active');
 
-    const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    if (profile) {
-      currentProfile = profile;
-      userAvatar.textContent = (profile.name || 'DN').substring(0, 2).toUpperCase();
-      chatTitle.textContent = profile.name || 'DiNhiChat';
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      if (profile) {
+        currentProfile = profile;
+        userAvatar.textContent = (profile.name || 'DN').substring(0, 2).toUpperCase();
+        chatTitle.textContent = profile.name || 'DiNhiChat';
+      }
+
+      await loadFromCacheThenSync();
+      subscribeRoom();
+      checkNotificationStatus();
+    } catch (err) {
+      console.error('initChat error:', err);
     }
-
-    await loadFromCacheThenSync();
-    subscribeRoom();
-    checkNotificationStatus();
   }
 
   function showAuth() {
@@ -437,26 +449,35 @@
     loginError.textContent = '';
     btnLogin.disabled = true;
     btnLogin.textContent = 'Đang đăng nhập...';
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: loginEmail.value.trim(),
-      password: loginPassword.value
-    });
-    btnLogin.disabled = false;
-    btnLogin.textContent = 'Đăng nhập';
-    if (error) {
-      loginError.textContent = error.message === 'Invalid login credentials' ? 'Sai email hoặc mật khẩu.' : error.message;
-      return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.value.trim(),
+        password: loginPassword.value
+      });
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Đăng nhập';
+      if (error) {
+        loginError.textContent = error.message === 'Invalid login credentials' ? 'Sai email hoặc mật khẩu.' : error.message;
+        return;
+      }
+      if (data.user) await initChat(data.user);
+    } catch (err) {
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Đăng nhập';
+      loginError.textContent = 'Lỗi kết nối: ' + (err.message || String(err));
     }
-    if (data.user) initChat(data.user);
   });
 
   btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
   btnSend.addEventListener('click', sendMessage);
   messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
 
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session && session.user) initChat(session.user);
+  supabase.auth.getSession().then(({ data }) => {
+    if (data?.session?.user) initChat(data.session.user);
     else showAuth();
+  }).catch((err) => {
+    console.error('getSession error:', err);
+    showAuth();
   });
 
   supabase.auth.onAuthStateChange((event, session) => {
