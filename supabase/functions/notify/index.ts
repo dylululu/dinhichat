@@ -70,16 +70,14 @@ Deno.serve(async (req: Request) => {
       await sendPush(profile, pushPayload, supabase);
     }
 
-    // Trả response ngay, chạy reminder trong background
     const msgCreatedAt = record.created_at || new Date().toISOString();
     const senderId = record.sender_id;
 
-    // Background: chờ 30s rồi kiểm tra B có reply chưa
-    (async () => {
+    // Reminder sau 30s — dùng EdgeRuntime.waitUntil để giữ execution sau khi trả response
+    const reminderTask = (async () => {
       try {
         await delay(30000);
 
-        // Lấy push_subscription mới nhất của target
         const { data: freshTargets } = await supabase
           .from("profiles")
           .select("id, push_subscription")
@@ -89,7 +87,6 @@ Deno.serve(async (req: Request) => {
         if (!freshTargets || freshTargets.length === 0) return;
 
         for (const target of freshTargets) {
-          // Kiểm tra target có gửi tin nào sau thời điểm A gửi không
           const { data: replies } = await supabase
             .from("messages")
             .select("id")
@@ -98,7 +95,6 @@ Deno.serve(async (req: Request) => {
             .limit(1);
 
           if (!replies || replies.length === 0) {
-            // B chưa reply → gửi reminder
             const reminderPayload = JSON.stringify({
               title: "DiNhiChat",
               body: "Cục dàng ơi! Dô rep tin nhắn kìaa"
@@ -110,6 +106,13 @@ Deno.serve(async (req: Request) => {
         console.error("Reminder error:", err);
       }
     })();
+
+    // Giữ function sống sau khi trả response
+    // @ts-ignore
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(reminderTask);
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },
