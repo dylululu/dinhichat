@@ -35,12 +35,17 @@
 
   const imgOverlay = document.getElementById('img-overlay');
   const imgOverlayImg = document.getElementById('img-overlay-img');
+  const typingIndicator = document.getElementById('typing-indicator');
 
   let currentUser = null;
   let currentProfile = null;
   let realtimeChannel = null;
+  let typingChannel = null;
+  let typingTimer = null;
+  let lastTypingSent = 0;
   const messageIds = new Set();
   const signedUrlCache = new Map();
+  const profilesMap = new Map();
 
   // Cache keys
   const CACHE_MSGS_KEY = 'dinhichat_msgs_cache';
@@ -52,6 +57,19 @@
   }
   function lsSet(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }
+
+  // ─── Profiles ────────────────────────────────────────────────────────────────
+  async function loadProfiles() {
+    const cached = lsGet(CACHE_PROFILES_KEY);
+    if (cached && Array.isArray(cached)) {
+      cached.forEach((p) => profilesMap.set(p.id, p));
+    }
+    const { data, error } = await supabase.from('profiles').select('id, name');
+    if (!error && data) {
+      data.forEach((p) => profilesMap.set(p.id, p));
+      lsSet(CACHE_PROFILES_KEY, data);
+    }
   }
 
   const remindSelect = document.getElementById('remind-select');
@@ -169,10 +187,146 @@
     } catch {}
   }
 
+  // ─── Read status ─────────────────────────────────────────────────────────────
+  async function markRead() {
+    if (!currentUser || document.visibilityState !== 'visible') return;
+    try {
+      await supabase
+        .from('messages')
+        .update({ read_at: new Date().toISOString() })
+        .neq('sender_id', currentUser.id)
+        .is('read_at', null);
+    } catch (err) {
+      console.error('markRead error:', err);
+    }
+  }
+
+  function renderSeen() {
+    if (!currentUser) return;
+    const existing = messagesContainer.querySelectorAll('.message-seen-status');
+    existing.forEach((el) => el.remove());
+
+    const selfRows = messagesContainer.querySelectorAll('.message-row.self[data-msg]');
+    if (!selfRows || selfRows.length === 0) return;
+    const lastSelfRow = selfRows[selfRows.length - 1];
+
+    let msgData = null;
+    try {
+      msgData = JSON.parse(lastSelfRow.dataset.msg);
+    } catch {}
+
+    const seenEl = document.createElement('div');
+    seenEl.className = 'message-seen-status';
+    if (msgData && msgData.read_at) {
+      seenEl.textContent = 'Iu dấu đã xem lúc ' + formatTime(msgData.read_at);
+    } else {
+      seenEl.textContent = 'Đã gửi';
+    }
+    lastSelfRow.appendChild(seenEl);
+  }
+
+  function updateMsgReadAt(updatedMsg) {
+    if (!updatedMsg || !updatedMsg.id) return;
+    const row = document.getElementById('msg-' + updatedMsg.id);
+    if (row && row.dataset.msg) {
+      try {
+        const current = JSON.parse(row.dataset.msg);
+        current.read_at = updatedMsg.read_at;
+        row.dataset.msg = JSON.stringify(current);
+      } catch {}
+    }
+    saveMsgsToCache();
+    renderSeen();
+  }
+
+  // ─── Typing indicator ────────────────────────────────────────────────────────
+  function subscribeTyping() {
+    if (typingChannel) supabase.removeChannel(typingChannel);
+
+    typingChannel = supabase.channel('typing-room', {
+      config: { broadcast: { self: false } }
+    });
+
+    typingChannel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const senderId = payload.payload?.user_id;
+        if (currentUser && senderId && senderId !== currentUser.id) {
+          showTyping(senderId);
+        }
+      })
+      .on('broadcast', { event: 'stop' }, (payload) => {
+        const senderId = payload.payload?.user_id;
+        if (currentUser && senderId && senderId !== currentUser.id) {
+          hideTyping();
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setTimeout(subscribeTyping, 1500);
+        }
+      });
+  }
+
+  function showTyping(senderId) {
+    if (!typingIndicator) return;
+    const name = profilesMap.get(senderId)?.name || 'Iu dấu';
+    typingIndicator.textContent = '💕 ' + name + ' đang nhập...';
+    typingIndicator.style.display = 'block';
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(hideTyping, 4000);
+  }
+
+  function hideTyping() {
+    clearTimeout(typingTimer);
+    if (!typingIndicator) return;
+    typingIndicator.textContent = '';
+    typingIndicator.style.display = 'none';
+  }
+
+  function sendTyping() {
+    if (!currentUser || document.visibilityState !== 'visible' || !typingChannel) return;
+    const val = messageInput.value.trim();
+    if (!val) {
+      sendStopTyping();
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTypingSent > 2000) {
+      lastTypingSent = now;
+      typingChannel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: currentUser.id }
+      });
+    }
+  }
+
+  function sendStopTyping() {
+    if (!currentUser || !typingChannel) return;
+    lastTypingSent = 0;
+    typingChannel.send({
+      type: 'broadcast',
+      event: 'stop',
+      payload: { user_id: currentUser.id }
+    });
+  }
+
   // ─── Render one message (addMsg) ─────────────────────────────────────────────
   async function addMsg(message, scroll = true) {
     if (!message || !message.id) return;
-    if (messageIds.has(message.id)) return;
+    if (messageIds.has(message.id)) {
+      if (message.read_at) {
+        const existingRow = document.getElementById('msg-' + message.id);
+        if (existingRow && existingRow.dataset.msg) {
+          try {
+            const current = JSON.parse(existingRow.dataset.msg);
+            current.read_at = message.read_at;
+            existingRow.dataset.msg = JSON.stringify(current);
+          } catch {}
+        }
+      }
+      return;
+    }
     messageIds.add(message.id);
 
     const isSelf = currentUser && message.sender_id === currentUser.id;
@@ -228,6 +382,7 @@
     row.appendChild(time);
 
     messagesContainer.appendChild(row);
+    renderSeen();
     if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
@@ -245,6 +400,8 @@
       for (const msg of sorted) await addMsg(msg, false);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
       saveMsgsToCache();
+      renderSeen();
+      await markRead();
     }
   }
 
@@ -261,6 +418,19 @@
           if (payload.new) {
             await addMsg(payload.new, true);
             saveMsgsToCache();
+            if (currentUser && payload.new.sender_id !== currentUser.id) {
+              hideTyping();
+              markRead();
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => {
+          if (payload.new) {
+            updateMsgReadAt(payload.new);
           }
         }
       )
@@ -281,6 +451,7 @@
     if (cached && cached.length > 0) {
       for (const msg of cached) await addMsg(msg, false);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      renderSeen();
     }
     // Then fetch from server
     await syncMessages();
@@ -359,6 +530,7 @@
 
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
+    sendStopTyping();
     const caption = messageInput.value.trim();
     if (caption) messageInput.value = '';
     for (let i = 0; i < files.length; i++) {
@@ -391,6 +563,7 @@
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
     messageInput.value = '';
+    sendStopTyping();
     btnSend.disabled = true;
     
     const remindSelect = document.getElementById('remind-select');
@@ -409,10 +582,15 @@
 
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && currentUser) syncMessages();
+    if (document.visibilityState === 'visible' && currentUser) {
+      syncMessages();
+      markRead();
+    } else if (document.visibilityState === 'hidden') {
+      sendStopTyping();
+    }
   });
-  window.addEventListener('pageshow', () => { if (currentUser) syncMessages(); });
-  window.addEventListener('focus', () => { if (currentUser) syncMessages(); });
+  window.addEventListener('pageshow', () => { if (currentUser) { syncMessages(); markRead(); } });
+  window.addEventListener('focus', () => { if (currentUser) { syncMessages(); markRead(); } });
 
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
@@ -428,9 +606,12 @@
         chatTitle.textContent = profile.name || 'DiNhiChat';
       }
 
+      await loadProfiles();
       await loadFromCacheThenSync();
       subscribeRoom();
+      subscribeTyping();
       checkNotificationStatus();
+      await markRead();
     } catch (err) {
       console.error('initChat error:', err);
     }
@@ -439,6 +620,8 @@
   function showAuth() {
     currentUser = null; currentProfile = null;
     if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
+    if (typingChannel) { supabase.removeChannel(typingChannel); typingChannel = null; }
+    hideTyping();
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
   }
@@ -470,6 +653,7 @@
 
   btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
   btnSend.addEventListener('click', sendMessage);
+  messageInput.addEventListener('input', sendTyping);
   messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
 
   supabase.auth.getSession().then(({ data }) => {
