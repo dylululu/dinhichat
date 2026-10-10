@@ -73,46 +73,7 @@ Deno.serve(async (req: Request) => {
     const msgCreatedAt = record.created_at || new Date().toISOString();
     const senderId = record.sender_id;
 
-    // Reminder sau 30s — dùng EdgeRuntime.waitUntil để giữ execution sau khi trả response
-    const reminderTask = (async () => {
-      try {
-        await delay(30000);
-
-        const { data: freshTargets } = await supabase
-          .from("profiles")
-          .select("id, push_subscription")
-          .neq("id", senderId)
-          .not("push_subscription", "is", null);
-
-        if (!freshTargets || freshTargets.length === 0) return;
-
-        for (const target of freshTargets) {
-          const { data: replies } = await supabase
-            .from("messages")
-            .select("id")
-            .eq("sender_id", target.id)
-            .gt("created_at", msgCreatedAt)
-            .limit(1);
-
-          if (!replies || replies.length === 0) {
-            const reminderPayload = JSON.stringify({
-              title: "DiNhiChat",
-              body: "Cục dàng ơi! Dô rep tin nhắn kìaa"
-            });
-            await sendPush(target, reminderPayload, supabase);
-          }
-        }
-      } catch (err) {
-        console.error("Reminder error:", err);
-      }
-    })();
-
-    // Giữ function sống sau khi trả response
-    // @ts-ignore
-    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(reminderTask);
-    }
+// reminder code removed
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" },

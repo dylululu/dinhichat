@@ -521,7 +521,12 @@
       <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none">
       <input type="file" id="file-gallery" accept="image/*" multiple style="display:none">
 
-      <button id="btn-attach" class="btn-attach" type="button">📎</button>
+<select id="remind-select" class="remind-select" style="margin-right:4px;">
+        <option value="none" selected>🔕 Không nhắc</option>
+        <option value="1">🔔 Nhắc 1 lần</option>
+        <option value="2">🔔 Nhắc 2 lần</option>
+        <option value="loop">🔁 Nhắc liên tục</option>
+      </select>
       <input type="text" id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off">
       <button id="btn-send" class="btn-send">Gửi</button>
     </footer>

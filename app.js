@@ -54,6 +54,15 @@
     try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
   }
 
+  const remindSelect = document.getElementById('remind-select');
+  if (remindSelect) {
+    const savedRemind = lsGet('dinhichat_remind_mode');
+    if (savedRemind) remindSelect.value = savedRemind;
+    remindSelect.addEventListener('change', () => {
+      lsSet('dinhichat_remind_mode', remindSelect.value);
+    });
+  }
+
   // ─── Service Worker ──────────────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch((err) => {
@@ -211,7 +220,11 @@
 
     const time = document.createElement('div');
     time.className = 'message-time';
-    time.textContent = formatTime(message.created_at);
+    let remindIcon = '';
+    if (isSelf && message.remind_mode && message.remind_mode !== 'none') {
+      remindIcon = message.remind_mode === 'loop' ? ' 🔁' : ' 🔔';
+    }
+    time.textContent = formatTime(message.created_at) + remindIcon;
     row.appendChild(time);
 
     messagesContainer.appendChild(row);
@@ -317,6 +330,8 @@
       if (upErr) throw upErr;
       const insertData = { image_path: path, sender_id: currentUser.id };
       if (captionText) insertData.content = captionText;
+      const remindSelect = document.getElementById('remind-select');
+      insertData.remind_mode = remindSelect ? remindSelect.value : 'none';
       const { error: insErr } = await supabase.from('messages').insert(insertData);
       if (insErr) throw insErr;
       removeTempBubble(tempId);
@@ -369,7 +384,16 @@
     if (!text || !currentUser) return;
     messageInput.value = '';
     btnSend.disabled = true;
-    const { error } = await supabase.from('messages').insert({ content: text, sender_id: currentUser.id });
+    
+    const remindSelect = document.getElementById('remind-select');
+    const remindMode = remindSelect ? remindSelect.value : 'none';
+    
+    const { error } = await supabase.from('messages').insert({ 
+      content: text, 
+      sender_id: currentUser.id,
+      remind_mode: remindMode
+    });
+    
     btnSend.disabled = false;
     messageInput.focus();
     if (error) { console.error('Lỗi gửi:', error); alert('Không gửi được tin nhắn: ' + error.message); }
