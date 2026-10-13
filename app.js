@@ -309,14 +309,62 @@
   }
 
   const remindSelect = document.getElementById('remind-select');
-  if (remindSelect) remindSelect.value = 'none';
+  const remindIcon = document.getElementById('remind-icon');
+  const remindBadge = document.getElementById('remind-badge');
+  const remindModes = ['none', '1', '2', 'loop'];
+  const remindLabels = { none: 'Không nhắc', '1': 'Nhắc 1 lần', '2': 'Nhắc 2 lần', loop: 'Nhắc liên tục' };
+  const remindIcons = { none: '🔕', '1': '🔔', '2': '🔔', loop: '🔁' };
+  const remindStorageKey = 'dinhichat_remind_mode';
+  if (remindSelect) {
+    try {
+      const savedMode = localStorage.getItem(remindStorageKey);
+      remindSelect.value = remindModes.includes(savedMode) ? savedMode : 'none';
+    } catch { remindSelect.value = 'none'; }
+  }
+
+  function renderRemindMode() {
+    if (!remindSelect) return;
+    const mode = remindModes.includes(remindSelect.value) ? remindSelect.value : 'none';
+    remindSelect.value = mode;
+    remindSelect.setAttribute('aria-label', remindLabels[mode]);
+    remindSelect.title = remindLabels[mode];
+    if (remindIcon) remindIcon.textContent = remindIcons[mode];
+    if (remindBadge) {
+      remindBadge.textContent = mode === '2' ? '2' : '';
+      remindBadge.hidden = mode !== '2';
+    }
+  }
+
+  function showRemindToast(mode) {
+    document.querySelector('.remind-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.className = 'remind-toast';
+    toast.textContent = remindLabels[mode];
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 1000);
+  }
+
+  if (remindSelect) {
+    renderRemindMode();
+    remindSelect.addEventListener('click', () => {
+      const currentIndex = remindModes.indexOf(remindSelect.value);
+      const mode = remindModes[(currentIndex + 1) % remindModes.length];
+      remindSelect.value = mode;
+      renderRemindMode();
+      try { localStorage.setItem(remindStorageKey, mode); } catch {}
+      showRemindToast(mode);
+    });
+  }
 
   function resizeMessageInput() {
     if (messageInput.tagName !== 'TEXTAREA') return;
-    messageInput.style.height = '40px';
-    const height = Math.min(messageInput.scrollHeight, 120);
+    const nearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
+    messageInput.style.height = 'auto';
+    const contentHeight = messageInput.scrollHeight;
+    const height = Math.max(40, Math.min(contentHeight, 120));
     messageInput.style.height = height + 'px';
-    messageInput.style.overflowY = messageInput.scrollHeight > 120 ? 'auto' : 'hidden';
+    messageInput.style.overflowY = contentHeight > 120 ? 'auto' : 'hidden';
+    if (nearBottom) requestAnimationFrame(() => { messagesContainer.scrollTop = messagesContainer.scrollHeight; });
   }
 
   function replySnippet(message, maxLength = 20) {
@@ -1028,11 +1076,9 @@
       if (error) throw error;
       return data;
     }, { onSuccess: () => {
-      if (remindSelect) remindSelect.value = 'none';
       clearReply();
       closeStickerPanel();
     } });
-    if (remindSelect) remindSelect.value = 'none';
     clearReply();
     closeStickerPanel();
     return true;
@@ -1541,12 +1587,8 @@
       return data;
     }, {
       localImageUrl: objectUrl,
-      restoreText: captionText || '',
-      onSuccess: () => {
-        if (remindSelect) remindSelect.value = 'none';
-      }
+      restoreText: captionText || ''
     });
-    if (remindSelect) remindSelect.value = 'none';
     return true;
   }
 
@@ -1634,11 +1676,9 @@
       restoreText: text,
       textFlightSource,
       onSuccess: () => {
-        if (remindSelect) remindSelect.value = 'none';
         clearReply();
       }
     });
-    if (remindSelect) remindSelect.value = 'none';
     clearReply();
     keepMessageInputFocused();
   }
@@ -1770,6 +1810,7 @@
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
+  resizeMessageInput();
   updateSendButtonVisibility();
 
   supabase.auth.getSession().then(({ data }) => {

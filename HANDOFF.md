@@ -11,7 +11,7 @@
 
 ## Bản đồ file
 - `index.html`: UI chat, ảnh bìa, sticker tray, thanh trả lời, vuốt, ảnh; viewport 1x, font nhập 16px, layout bàn phím PWA.
-- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, chặn zoom gesture, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -41,14 +41,14 @@
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
-- Khung nhập chat nhiều dòng tự giãn; bỏ dòng mô tả nhắc dưới thanh nhập.
+- Khung nhập nhiều dòng tự giãn giữ font 16px; nút nhắc chỉ hiện icon, xoay 4 chế độ và lưu lựa chọn cục bộ.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa chat dùng chung: lưu Storage, đồng bộ Realtime, cache cục bộ và làm mới signed URL.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
 
 ## Đang làm / Dở dang
-- Bạn làm tay: tự git push, xóa icon iPhone rồi thêm lại, thử bàn phím trên iPhone thật (lỗi chỉ gặp ở PWA standalone; Chrome DevTools không mô phỏng được).
+- Bạn làm tay: `npx serve .` thử, tự git push, xóa icon iPhone rồi thêm lại, thử bàn phím trên iPhone thật.
 
 ## Lỗi đã biết / Lưu ý
 - Kết nối trực tiếp DB bị chặn pass; chạy migration qua Supabase Management Query API.

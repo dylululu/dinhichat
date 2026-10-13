@@ -781,7 +781,7 @@
       border-top: 1px solid #f4c3d5;
       display: flex;
       flex-wrap: wrap;
-      align-items: center;
+      align-items: flex-end;
       gap: 6px;
       padding-bottom: calc(8px + env(safe-area-inset-bottom));
       flex-shrink: 0;
@@ -837,10 +837,11 @@
       height: 40px;
       min-height: 40px;
       max-height: 120px;
-      padding: 9px 12px;
+      padding: 8px 12px;
+      box-sizing: border-box;
       border: 1px solid #edb7cb;
       border-radius: 18px;
-      font-size: 15px;
+      font-size: 16px !important;
       line-height: 1.35;
       font-family: inherit;
       outline: none;
@@ -856,17 +857,60 @@
 
     .remind-select {
       flex-shrink: 0;
-      max-width: 112px;
-      padding: 8px 4px;
-      border-radius: 14px;
-      border: 1px solid #edb7cb;
-      font-size: 11px;
-      background: #fff0f6;
+      width: 40px;
+      height: 40px;
+      max-width: 40px;
+      padding: 4px;
+      border: 0;
+      border-radius: 50%;
+      font-size: 16px;
+      background: transparent;
       color: var(--text-main);
       outline: none;
       cursor: pointer;
-      text-overflow: ellipsis;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      touch-action: manipulation;
+    }
+    .remind-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #fff0f6;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .remind-badge {
+      position: absolute;
+      right: 2px;
+      bottom: 2px;
+      min-width: 12px;
+      height: 12px;
+      padding: 0 2px;
+      border-radius: 7px;
+      background: #e91e63;
+      color: #fff;
+      font: 9px/12px system-ui, sans-serif;
+      text-align: center;
+    }
+    .remind-toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom) + 76px);
+      z-index: 10000;
+      max-width: 90vw;
+      padding: 7px 12px;
+      border-radius: 18px;
+      background: rgba(55, 35, 45, .92);
+      color: #fff;
+      font-size: 12px;
       white-space: nowrap;
+      pointer-events: none;
+      transform: translateX(-50%);
     }
 
     .btn-send {
@@ -983,7 +1027,7 @@
     }
 
     /* Keep the composer above iOS keyboard and prevent focus zoom hiding input text. */
-    .chat-input { font-size: 16px; flex: 1 1 60px; min-width: 0; }
+    .chat-input { font-size: 16px !important; flex: 1 1 60px; min-width: 0; }
     body.kb #app .chat-input-bar {
       position: relative;
       z-index: 20;
@@ -1082,12 +1126,10 @@
       <button id="btn-attach" class="btn-attach" type="button">📎</button>
       <button id="btn-sticker" class="btn-attach" type="button" aria-label="Mở sticker">🎟️</button>
       <textarea id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off" rows="1"></textarea>
-      <select id="remind-select" class="remind-select">
-        <option value="none" selected>🔕 Không nhắc</option>
-        <option value="1">🔔 1 lần</option>
-        <option value="2">🔔 2 lần</option>
-        <option value="loop">🔁 Liên tục</option>
-      </select>
+      <button id="remind-select" class="remind-select" type="button" value="none" aria-label="Không nhắc" title="Không nhắc">
+        <span id="remind-icon" class="remind-icon" aria-hidden="true">🔕</span>
+        <span id="remind-badge" class="remind-badge" aria-hidden="true" hidden>2</span>
+      </button>
       <button id="btn-send" class="btn-send">Gửi</button>
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
