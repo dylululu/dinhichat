@@ -40,6 +40,12 @@
   const sendGatherOverlay = document.getElementById('send-gather-overlay');
   const newMessagesButton = document.getElementById('new-messages-button');
   const messageInput = document.getElementById('message-input');
+  const customKeyboard = document.getElementById('kb');
+  const customKeyboardToggle = document.getElementById('kb-toggle');
+  const customKeyboardHide = document.getElementById('kb-hide');
+  const customKeyboardEmojiRow = document.getElementById('kb-emoji-row');
+  const customKeyboardSymbols = document.querySelector('.kb-symbols');
+  const customKeyboardLetters = document.querySelector('.kb-letters');
   const btnSend = document.getElementById('btn-send');
   const replyBar = document.getElementById('reply-bar');
   const replyBarText = document.getElementById('reply-bar-text');
@@ -68,6 +74,265 @@
   let messagesNearBottom = true;
   let inputFocusPending = false;
   let keyboardBottomTimer = null;
+  let pinkKeyboardOpen = false;
+  let nativeKeyboardMode = false;
+  let keyboardTab = 'letters';
+  let keyboardPreviousTab = 'letters';
+  let keyboardShift = false;
+  let keyboardCapsLock = false;
+  let keyboardTelex = true;
+  let deleteRepeatTimer = null;
+  let deleteRepeatStart = null;
+
+  function openPinkKeyboard() {
+    if (!customKeyboard || stickerPanel?.classList.contains('open')) return;
+    nativeKeyboardMode = false;
+    messageInput.setAttribute('inputmode', 'none');
+    document.body.classList.remove('native-keyboard-mode', 'kb');
+    document.documentElement.style.setProperty('--vvh', '100dvh');
+    document.documentElement.style.setProperty('--vvt', '0px');
+    customKeyboard.classList.add('open');
+    customKeyboard.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('pink-kb-open');
+    pinkKeyboardOpen = true;
+    const baseHeight = Math.max(240, Math.min(320, window.innerHeight * .38));
+    document.documentElement.style.setProperty('--cover-shift', `${-Math.round(baseHeight * .35)}px`);
+    scrollMessagesAfterKeyboard(messagesNearBottom);
+  }
+
+  function closePinkKeyboard() {
+    if (!customKeyboard) return;
+    customKeyboard.classList.remove('open');
+    customKeyboard.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('pink-kb-open');
+    document.documentElement.style.setProperty('--cover-shift', '0px');
+    pinkKeyboardOpen = false;
+    clearTimeout(deleteRepeatTimer);
+    deleteRepeatTimer = null;
+    scrollMessagesAfterKeyboard(messagesNearBottom);
+  }
+
+  function useNativeKeyboard() {
+    closePinkKeyboard();
+    nativeKeyboardMode = true;
+    document.body.classList.add('native-keyboard-mode');
+    messageInput.removeAttribute('inputmode');
+    messageInput.blur();
+    try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
+    scheduleFitViewport();
+  }
+
+  function usePinkKeyboard() {
+    nativeKeyboardMode = false;
+    document.body.classList.remove('native-keyboard-mode');
+    messageInput.blur();
+    messageInput.setAttribute('inputmode', 'none');
+    openPinkKeyboard();
+    try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
+  }
+
+  function emitComposerInput(inputType = 'insertText', data = null) {
+    try { messageInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType, data })); }
+    catch { messageInput.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
+
+  function replaceComposerRange(start, end, text, caret = start + text.length) {
+    messageInput.setRangeText(text, start, end, 'preserve');
+    messageInput.setSelectionRange(caret, caret);
+  }
+
+  const telexPairs = { aa: 'â', aw: 'ă', ee: 'ê', oo: 'ô', ow: 'ơ', uw: 'ư', dd: 'đ' };
+  const toneFamilies = {
+    a: ['a','á','à','ả','ã','ạ'], ă: ['ă','ắ','ằ','ẳ','ẵ','ặ'], â: ['â','ấ','ầ','ẩ','ẫ','ậ'],
+    e: ['e','é','è','ẻ','ẽ','ẹ'], ê: ['ê','ế','ề','ể','ễ','ệ'], i: ['i','í','ì','ỉ','ĩ','ị'],
+    o: ['o','ó','ò','ỏ','õ','ọ'], ô: ['ô','ố','ồ','ổ','ỗ','ộ'], ơ: ['ơ','ớ','ờ','ở','ỡ','ợ'],
+    u: ['u','ú','ù','ủ','ũ','ụ'], ư: ['ư','ứ','ừ','ử','ữ','ự'], y: ['y','ý','ỳ','ỷ','ỹ','ỵ']
+  };
+  const toneBase = {};
+  Object.entries(toneFamilies).forEach(([base, forms]) => forms.forEach((form) => { toneBase[form] = base; toneBase[form.toUpperCase()] = base.toUpperCase(); }));
+
+  function convertTelexAtCaret() {
+    const caret = messageInput.selectionStart;
+    const prefix = messageInput.value.slice(0, caret);
+    const tokenMatch = prefix.match(/[\p{L}\p{M}]+$/u);
+    if (!tokenMatch) return;
+    const start = caret - tokenMatch[0].length;
+    let word = tokenMatch[0];
+    const lower = word.toLowerCase();
+    const pair = Object.keys(telexPairs).find((candidate) => lower.endsWith(candidate));
+    if (pair) {
+      const replacement = telexPairs[pair];
+      const pairChars = word.slice(-2);
+      const upper = pairChars !== pairChars.toLowerCase();
+      replaceComposerRange(caret - 2, caret, upper ? replacement.toUpperCase() : replacement);
+      return;
+    }
+    const toneIndex = { s: 1, f: 2, r: 3, x: 4, j: 5 }[lower.slice(-1)];
+    if (toneIndex) {
+      word = word.slice(0, -1);
+      const chars = Array.from(word);
+      for (let i = chars.length - 1; i >= 0; i--) {
+        const base = (toneBase[chars[i]] || chars[i].toLowerCase()).toLowerCase();
+        const family = toneFamilies[base];
+        if (!family) continue;
+        const upper = chars[i] === chars[i].toUpperCase();
+        chars[i] = upper ? family[toneIndex].toUpperCase() : family[toneIndex];
+        replaceComposerRange(start, caret, chars.join(''));
+        return;
+      }
+      return;
+    }
+    if (lower.endsWith('z')) {
+      const source = Array.from(word.slice(0, -1));
+      const chars = source.map((char) => toneBase[char] || char);
+      if (source.some((char, index) => char !== chars[index])) replaceComposerRange(start, caret, chars.join(''));
+    }
+  }
+
+  function insertComposerText(text, useTelex = true) {
+    const start = messageInput.selectionStart ?? messageInput.value.length;
+    const end = messageInput.selectionEnd ?? start;
+    let value = text;
+    const letter = /^[a-z]$/i.test(value);
+    if (letter) {
+      const prefix = messageInput.value.slice(0, start);
+      if (keyboardCapsLock || keyboardShift || !prefix.trim() || /[.!?]\s*$|\n\s*$/.test(prefix)) value = value.toUpperCase();
+      if (keyboardShift && !keyboardCapsLock) { keyboardShift = false; updateKeyboardCase(); }
+    }
+    replaceComposerRange(start, end, value);
+    if (useTelex && keyboardTelex && letter) convertTelexAtCaret();
+    emitComposerInput('insertText', value);
+  }
+
+  function eraseComposerCharacter() {
+    const start = messageInput.selectionStart ?? messageInput.value.length;
+    const end = messageInput.selectionEnd ?? start;
+    if (start !== end) replaceComposerRange(start, end, '');
+    else if (start > 0) {
+      let previous = start - 1;
+      try {
+        const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(messageInput.value.slice(0, start))];
+        previous = segments.length ? segments[segments.length - 1].index : previous;
+      } catch {
+        if (start > 1 && /[\uDC00-\uDFFF]/.test(messageInput.value[start - 1])) previous--;
+      }
+      replaceComposerRange(previous, start, '');
+    } else return;
+    emitComposerInput('deleteContentBackward');
+  }
+
+  function renderKeyboardEmoji() {
+    if (!customKeyboardEmojiRow || customKeyboardEmojiRow.childElementCount) return;
+    const emojis = '❤️ 💕 💗 😘 🥰 😍 😂 🥺 😴 🌙 😊 😭 🙈 💖 💞 😚 🤗 😋 😎 🥹 🤍 ✨ 🌸 🌷 🎀 🫶 😁 😅 🙂 🙃 😔 😢 🤔 😮 😳 😌 🥱 😇 😏 😜 😝 😤 😡 💌 💋 💐 🌹 🦋 🐰 🐱 🐻 🐼 🍓 🍰 ☕️ 🥺‍🩹 🤝 👍 👏 🙏 💤';
+    emojis.split(' ').forEach((emoji) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'kb-emoji'; button.textContent = emoji;
+      button.dataset.kbKey = 'emoji:' + emoji;
+      customKeyboardEmojiRow.appendChild(button);
+    });
+  }
+
+  function setKeyboardTab(tab) {
+    keyboardTab = tab;
+    customKeyboard.classList.toggle('emoji-mode', tab === 'emoji');
+    if (customKeyboardLetters) customKeyboardLetters.style.display = tab === 'letters' ? '' : 'none';
+    if (customKeyboardSymbols) customKeyboardSymbols.hidden = tab !== 'symbols';
+    if (tab === 'emoji') renderKeyboardEmoji();
+  }
+
+  function handleKeyboardKey(key) {
+    try { navigator.vibrate?.(5); } catch {}
+    if (key === 'shift') {
+      if (keyboardCapsLock) { keyboardCapsLock = false; keyboardShift = false; }
+      else if (keyboardShift) { keyboardCapsLock = true; keyboardShift = false; }
+      else keyboardShift = true;
+      updateKeyboardCase();
+      return;
+    }
+    if (key === 'backspace') { eraseComposerCharacter(); return; }
+    if (key === 'symbols') { setKeyboardTab(keyboardTab === 'symbols' ? 'letters' : 'symbols'); return; }
+    if (key === 'emoji') {
+      if (keyboardTab === 'emoji') setKeyboardTab(keyboardPreviousTab);
+      else { keyboardPreviousTab = keyboardTab; setKeyboardTab('emoji'); }
+      return;
+    }
+    if (key === 'globe') { useNativeKeyboard(); return; }
+    if (key === 'telex') {
+      keyboardTelex = !keyboardTelex;
+      document.querySelector('[data-kb-key="telex"]').textContent = keyboardTelex ? 'VI' : 'EN';
+      return;
+    }
+    if (key === 'newline') { insertComposerText('\n', false); return; }
+    if (key === 'space') { insertComposerText(' ', false); return; }
+    if (key.startsWith('emoji:')) { insertComposerText(key.slice(6), false); return; }
+    insertComposerText(key, keyboardTab === 'letters');
+  }
+
+  function updateKeyboardCase() {
+    document.querySelectorAll('#kb [data-kb-key]').forEach((button) => {
+      const value = button.dataset.kbKey;
+      if (/^[a-z]$/.test(value)) button.textContent = (keyboardShift || keyboardCapsLock) ? value.toUpperCase() : value;
+    });
+  }
+
+  function clearDeleteRepeat() {
+    clearTimeout(deleteRepeatTimer);
+    clearTimeout(deleteRepeatStart);
+    deleteRepeatTimer = null;
+    deleteRepeatStart = null;
+  }
+
+  function startDeleteRepeat() {
+    clearDeleteRepeat();
+    eraseComposerCharacter();
+    deleteRepeatStart = setTimeout(function repeatDelete() {
+      eraseComposerCharacter();
+      deleteRepeatTimer = setTimeout(repeatDelete, 60);
+    }, 400);
+  }
+
+  document.querySelectorAll('#kb [data-kb-key]').forEach((keyButton) => {
+    keyButton.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      try { keyButton.setPointerCapture(event.pointerId); } catch {}
+      keyButton.classList.add('pressed');
+      try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
+      const key = keyButton.dataset.kbKey;
+      if (key === 'backspace') startDeleteRepeat();
+      else handleKeyboardKey(key);
+    });
+    keyButton.addEventListener('click', (event) => {
+      if (event.detail === 0) handleKeyboardKey(keyButton.dataset.kbKey);
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => keyButton.addEventListener(type, () => {
+      keyButton.classList.remove('pressed');
+      if (keyButton.dataset.kbKey === 'backspace') clearDeleteRepeat();
+    }));
+  });
+
+  customKeyboardHide?.addEventListener('pointerdown', (event) => { event.preventDefault(); closePinkKeyboard(); });
+  customKeyboardToggle?.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    if (nativeKeyboardMode) usePinkKeyboard(); else useNativeKeyboard();
+  });
+  const keyboardGrip = document.querySelector('.kb-grip');
+  let keyboardGripY = null;
+  keyboardGrip?.addEventListener('pointerdown', (event) => {
+    event.preventDefault(); keyboardGripY = event.clientY;
+    try { keyboardGrip.setPointerCapture(event.pointerId); } catch {}
+  });
+  keyboardGrip?.addEventListener('pointerup', (event) => {
+    if (keyboardGripY !== null && event.clientY - keyboardGripY > 25) closePinkKeyboard();
+    keyboardGripY = null;
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (pinkKeyboardOpen && !event.target.closest?.('#kb, .chat-input-bar')) closePinkKeyboard();
+    if (nativeKeyboardMode && !event.target.closest?.('.chat-input-bar')) {
+      nativeKeyboardMode = false;
+      document.body.classList.remove('native-keyboard-mode');
+      messageInput.blur();
+    }
+  }, true);
 
   function scrollMessagesAfterKeyboard(shouldFollow) {
     if (!shouldFollow) return;
@@ -81,6 +346,12 @@
   }
 
   function fitViewport() {
+    if (pinkKeyboardOpen) {
+      document.documentElement.style.setProperty('--vvh', '100dvh');
+      document.documentElement.style.setProperty('--vvt', '0px');
+      document.body.classList.remove('kb');
+      return;
+    }
     const viewport = window.visualViewport;
     if (!viewport) return;
     if (fitViewportFrame !== null) window.cancelAnimationFrame(fitViewportFrame);
@@ -112,15 +383,23 @@
     [50, 350].forEach((delay) => window.setTimeout(fitViewport, delay));
   }
 
+  messageInput.addEventListener('focusin', () => {
+    if (!nativeKeyboardMode) openPinkKeyboard();
+  });
+  messageInput.addEventListener('pointerdown', () => {
+    if (!nativeKeyboardMode && !pinkKeyboardOpen) openPinkKeyboard();
+  });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', fitViewport);
     window.addEventListener('orientationchange', () => window.setTimeout(fitViewport, 300));
     messageInput.addEventListener('focusin', () => {
+      if (!nativeKeyboardMode) return;
       inputFocusPending = true;
       scheduleFitViewport();
       setTimeout(() => { inputFocusPending = false; }, 800);
     });
     messageInput.addEventListener('focusout', () => {
+      if (!nativeKeyboardMode) { closePinkKeyboard(); return; }
       inputFocusPending = false;
       scheduleFitViewport();
     });
@@ -151,6 +430,7 @@
   let lastTouchEndAt = 0;
   document.addEventListener('touchend', (event) => {
     const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+    if (target?.closest?.('#kb')) { lastTouchEndAt = 0; return; }
     if (target?.closest?.('button, label, input, textarea, select, a, [role="button"], #cover-menu')) {
       lastTouchEndAt = 0;
       return;
@@ -1884,13 +2164,17 @@
       event.stopPropagation();
       if (attachMenu) attachMenu.classList.remove('open');
       const open = !stickerPanel.classList.contains('open');
+      if (open) closePinkKeyboard();
       stickerPanel.classList.toggle('open', open);
       stickerPanel.setAttribute('aria-hidden', String(!open));
       if (open) await loadStickers();
     });
     stickerPanel.addEventListener('click', (event) => event.stopPropagation());
     document.addEventListener('click', (event) => {
-      if (!stickerPanel.contains(event.target) && event.target !== btnSticker) closeStickerPanel();
+      if (!stickerPanel.contains(event.target) && event.target !== btnSticker) {
+        closeStickerPanel();
+        if (event.target === messageInput && !nativeKeyboardMode) openPinkKeyboard();
+      }
     });
     fileSticker.addEventListener('change', () => handleStickerFiles(fileSticker.files));
     messageInput.addEventListener('paste', (event) => {

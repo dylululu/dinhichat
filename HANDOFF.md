@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, ảnh bìa ở lớp #chat-cover cố định 100lvh, sticker tray, thanh trả lời, vuốt, ảnh; viewport 1x, font nhập 16px, layout bàn phím PWA.
-- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, cuộn list khi bàn phím mở, ResizeObserver danh sách chat, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `index.html`: UI chat, #kb bàn phím hồng, Telex/emoji và 🌐 chuyển bàn phím iOS; #chat-cover cố định 100lvh+120px, trượt parallax, sticker tray, trả lời, ảnh; viewport 1x.
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardKey, convertTelexAtCaret, fitViewport RAF + visualViewport, cuộn list/ResizeObserver, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -36,12 +36,12 @@
 - Nhắc lại tin nhắn (chế độ none/1/2/loop, hiện icon 🔔/🔁, trigger đặt next_remind_at, cron job định kỳ).
 - Chế độ nhắc áp dụng cho một tin gửi; sau khi gửi thành công tự về “Không nhắc”, không lưu lựa chọn cũ.
 - Khi có tin mới từ cùng người gửi, Edge Function hủy các nhắc còn chờ của tin cũ.
-- Chống zoom khi gõ trên iPhone PWA: khóa viewport 1x, font nhập 16px, RAF chỉ cập nhật --vvh/--vvt khi đổi, chặn gesture/double-tap.
+- Chống zoom khi gõ trên iPhone PWA: khóa viewport 1x, font nhập 16px, RAF chỉ cập nhật --vvh/--vvt khi dùng bàn phím iOS, chặn gesture/double-tap.
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
-- Khung nhập nhiều dòng tự giãn giữ font 16px; nút nhắc chỉ hiện icon, xoay 4 chế độ và lưu lựa chọn cục bộ.
+- Bàn phím ảo hồng #kb thay bàn phím iOS cho ô chat, có Telex, emoji, xóa giữ lâu, 🌐 chuyển qua lại bàn phím hệ thống; #chat-cover trượt lên parallax khi mở và danh sách tự co/cuộn theo đáy.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.
