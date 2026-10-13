@@ -17,10 +17,10 @@
     :root {
       --primary-color: #e91e63;
       --primary-dark: #c2185b;
-      --bg-gray: #f5f5f7;
-      --bubble-gray: #e9e9eb;
-      --text-main: #1c1c1e;
-      --text-muted: #8e8e93;
+      --bg-gray: #fff2f7;
+      --bubble-gray: #ffe1ed;
+      --text-main: #421c2e;
+      --text-muted: #85566c;
     }
 
     * {
@@ -155,13 +155,15 @@
 
     /* Chat Screen */
     #chat-screen {
-      background: #ffffff;
+      background: #fff7fa;
       height: 100%;
+      position: relative;
     }
 
     .chat-header {
-      background: #ffffff;
-      border-bottom: 1px solid #eaeaea;
+      position: relative;
+      background: #ffe7f0;
+      border-bottom: 1px solid #f4c3d5;
       padding: 12px 16px;
       display: flex;
       align-items: center;
@@ -200,6 +202,7 @@
     }
 
     .header-actions {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -232,6 +235,48 @@
       padding: 6px;
     }
 
+    .btn-cover {
+      border: 0;
+      border-radius: 16px;
+      padding: 6px 8px;
+      background: #ffd9e8;
+      font-size: 17px;
+      cursor: pointer;
+    }
+
+    .cover-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 30;
+      min-width: 190px;
+      padding: 5px;
+      background: #fff0f6;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+      flex-direction: column;
+    }
+
+    .cover-menu.open {
+      display: flex;
+    }
+
+    .cover-menu button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: transparent;
+      color: var(--text-main);
+      text-align: left;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .cover-menu button:active {
+      background: #ffe0ec;
+    }
+
     /* Notice Banner */
     .notice-banner {
       background: #fff8e1;
@@ -253,7 +298,39 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      background: #f7f7f9;
+      background: #fff0f6;
+    }
+
+    .chat-messages.has-cover {
+      background-color: #fff0f6;
+      background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
+      background-position: center;
+      background-size: cover;
+      background-attachment: scroll;
+    }
+
+    .chat-messages.has-cover .message-row.other .message-bubble {
+      background-color: rgba(255, 225, 237, .92);
+    }
+
+    .chat-messages.has-cover .message-time,
+    .chat-messages.has-cover .message-seen-status,
+    .chat-messages.has-cover .sticker-sender {
+      color: #333;
+      text-shadow: 0 1px 3px rgba(255, 255, 255, .8);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .chat-messages.has-cover {
+        background-image: linear-gradient(rgba(0, 0, 0, .35), rgba(0, 0, 0, .35)), var(--chat-cover-image);
+      }
+
+      .chat-messages.has-cover .message-time,
+      .chat-messages.has-cover .message-seen-status,
+      .chat-messages.has-cover .sticker-sender {
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+      }
     }
 
     .message-row {
@@ -264,6 +341,83 @@
       touch-action: pan-y;
       will-change: transform;
     }
+
+    .message-row.animate-outgoing { animation: message-outgoing 320ms cubic-bezier(.2,.9,.3,1.2) both; transform-origin: bottom right; }
+    .message-row.animate-incoming { animation: message-incoming 260ms ease-out both; transform-origin: center left; }
+    @keyframes message-outgoing {
+      0% { transform: translateY(24px) scale(.85); opacity: 0; }
+      72% { transform: translateY(0) scale(1.04); opacity: 1; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    @keyframes message-incoming {
+      from { transform: translateX(-16px) scale(.95); opacity: 0; }
+      to { transform: translateX(0) scale(1); opacity: 1; }
+    }
+    .message-row.is-sending { opacity: .6; transition: opacity 200ms ease; }
+    .message-row.send-error { opacity: 1; outline: 1px solid #d32f2f; outline-offset: 2px; border-radius: 12px; }
+    .message-row.send-error .message-bubble { border: 1px solid #d32f2f; }
+    .retry-send { margin: 4px 4px 0; padding: 3px 8px; border: 0; border-radius: 10px; background: #fff0f6; color: #c2185b; font-size: 12px; cursor: pointer; }
+
+    #new-messages-button {
+      display: none;
+      position: absolute;
+      z-index: 5;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      transform: translateX(-50%);
+      padding: 8px 14px;
+      border: 0;
+      border-radius: 18px;
+      background: #e91e63;
+      color: #fff;
+      box-shadow: 0 3px 12px #0002;
+      cursor: pointer;
+    }
+    #new-messages-button.visible { display: block; }
+
+    .send-heart {
+      position: fixed;
+      z-index: 2000;
+      left: var(--heart-x);
+      top: var(--heart-y);
+      font-size: var(--heart-size);
+      line-height: 1;
+      pointer-events: none;
+      animation: send-heart-fly 700ms ease-out both;
+      will-change: transform, opacity;
+    }
+    .send-gather-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 3000;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .send-gather-particle {
+      position: absolute;
+      line-height: 1;
+      font-weight: 700;
+      text-shadow: 0 0 8px rgba(233, 30, 99, .8), 0 0 12px #fff;
+      filter: drop-shadow(0 0 5px rgba(233, 30, 99, .65));
+      will-change: transform, opacity;
+    }
+    .send-gather-ripple {
+      position: absolute;
+      width: 30px;
+      height: 30px;
+      border: 2px solid rgba(233, 30, 99, .7);
+      border-radius: 50%;
+      background: rgba(255, 105, 180, .12);
+      will-change: transform, opacity;
+    }
+    @keyframes send-heart-fly {
+      from { transform: translate(0, 0) scale(.75); opacity: 1; }
+      to { transform: translate(var(--heart-dx), -74px) scale(1.15); opacity: 0; }
+    }
+    .btn-send { transition: transform 150ms ease, opacity 150ms ease; transform-origin: center; }
+    .btn-send.is-empty { opacity: 0; transform: scale(.75); pointer-events: none; }
+    .btn-send.is-pressed { animation: send-button-pop 150ms ease-out; }
+    @keyframes send-button-pop { 0% { transform: scale(.88); } 100% { transform: scale(1); } }
 
     .reply-swipe-icon {
       position: absolute;
@@ -318,7 +472,7 @@
 
     .reply-quote {
       border-left: 3px solid #e91e63;
-      background: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 240, 246, 0.78);
       color: #777;
       font-size: 12px;
       line-height: 1.3;
@@ -330,7 +484,7 @@
     }
 
     .message-row.other .reply-quote {
-      background: rgba(255, 255, 255, 0.5);
+      background: rgba(255, 240, 246, 0.92);
     }
 
     .reply-quote-name,
@@ -384,7 +538,7 @@
       max-height: 270px;
       padding: 10px;
       border-radius: 16px;
-      background: #fff;
+      background: #fff0f6;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
       overflow-y: auto;
       opacity: 0;
@@ -414,7 +568,7 @@
       justify-content: center;
       border: 0;
       border-radius: 10px;
-      background: #f7f7f9;
+      background: #ffe4ee;
       padding: 5px;
       cursor: pointer;
       touch-action: manipulation;
@@ -487,8 +641,8 @@
     /* Chat Input */
     .chat-input-bar {
       padding: 8px 10px;
-      background: #ffffff;
-      border-top: 1px solid #eaeaea;
+      background: #ffe7f0;
+      border-top: 1px solid #f4c3d5;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -520,6 +674,8 @@
       color: #666;
       font-size: 12px;
       border-left: 3px solid #e91e63;
+      background: #fff0f6;
+      border-radius: 8px;
     }
 
     .reply-bar-text {
@@ -532,7 +688,7 @@
     .reply-cancel {
       border: 0;
       background: transparent;
-      color: #777;
+      color: #704054;
       font-size: 18px;
       line-height: 1;
       padding: 3px 6px;
@@ -546,7 +702,7 @@
       min-height: 40px;
       max-height: 120px;
       padding: 9px 12px;
-      border: 1px solid #ddd;
+      border: 1px solid #edb7cb;
       border-radius: 18px;
       font-size: 15px;
       line-height: 1.35;
@@ -554,6 +710,8 @@
       outline: none;
       resize: none;
       overflow-y: hidden;
+      background: #fff7fa;
+      color: var(--text-main);
     }
 
     .chat-input:focus {
@@ -565,9 +723,9 @@
       max-width: 112px;
       padding: 8px 4px;
       border-radius: 14px;
-      border: 1px solid #ddd;
+      border: 1px solid #edb7cb;
       font-size: 11px;
-      background: #f7f7f9;
+      background: #fff0f6;
       color: var(--text-main);
       outline: none;
       cursor: pointer;
@@ -608,7 +766,7 @@
       position: absolute;
       bottom: calc(100% + 6px);
       left: 14px;
-      background: #fff;
+      background: #fff0f6;
       border-radius: 14px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
       overflow: hidden;
@@ -631,7 +789,7 @@
     }
 
     .attach-menu-item:active {
-      background: #f0f0f0;
+      background: #ffe0ec;
     }
 
     .w {
@@ -676,6 +834,15 @@
       text-align: right;
       margin-top: 2px;
       padding: 0 4px;
+      transition: opacity 200ms ease;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .message-row.animate-outgoing, .message-row.animate-incoming { animation: message-fade 120ms ease-out both; }
+      @keyframes message-fade { from { opacity: 0; } to { opacity: 1; } }
+      .send-heart { display: none; animation: none; }
+      .btn-send, .message-row.is-sending, .message-seen-status { transition-duration: 120ms; }
+      .btn-send.is-pressed { animation: none; }
     }
   </style>
 </head>
@@ -716,9 +883,15 @@
       </div>
       <div class="header-actions">
         <button id="btn-enable-notify" class="btn-notify">🔔 Bật thông báo</button>
+        <button id="btn-cover" class="btn-cover" type="button" aria-label="Ảnh bìa">🖼️</button>
+        <div id="cover-menu" class="cover-menu">
+          <button id="cover-change" type="button">Đổi ảnh bìa</button>
+          <button id="cover-remove" type="button">Xóa ảnh bìa (về mặc định)</button>
+        </div>
         <button id="btn-logout" class="btn-logout">Thoát</button>
       </div>
     </header>
+    <input type="file" id="cover-file" accept="image/*" style="display:none">
 
     <div id="pwa-install-banner" class="notice-banner">
       Để nhận thông báo trên iPhone: Bấm nút <strong>Chia sẻ</strong> (biểu tượng hộp có mũi tên) → <strong>Thêm vào Màn
@@ -732,6 +905,7 @@
     <div id="typing-indicator" class="typing-indicator"></div>
 
     <footer class="chat-input-bar">
+      <button id="new-messages-button" type="button">↓ Tin mới</button>
       <div id="reply-bar" class="reply-bar">
         <div id="reply-bar-text" class="reply-bar-text"></div>
         <button id="reply-cancel" class="reply-cancel" type="button" aria-label="Hủy trả lời">✕</button>
@@ -765,6 +939,7 @@
   </div>
 
   <!-- Image full-screen overlay -->
+  <div id="send-gather-overlay" class="send-gather-overlay" aria-hidden="true"></div>
   <div id="img-overlay">
     <img id="img-overlay-img" src="" alt="">
   </div>
