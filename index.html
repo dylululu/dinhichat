@@ -286,6 +286,20 @@
     }
 
     /* Messages area */
+    #chat-cover {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-color: #fff0f6;
+      background-position: center;
+      background-size: cover;
+      background-repeat: no-repeat;
+    }
+    #chat-cover.has-cover {
+      background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
+    }
+    .chat-header, .chat-messages, .chat-input-bar { position: relative; z-index: 1; }
     .chat-messages {
       flex: 1;
       overflow-y: auto;
@@ -295,15 +309,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      background: #fff0f6;
-    }
-
-    .chat-messages.has-cover {
-      background-color: #fff0f6;
-      background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
-      background-position: center;
-      background-size: cover;
-      background-attachment: scroll;
+      background: transparent;
     }
 
     .chat-messages.has-cover .message-row.other .message-bubble {
@@ -436,7 +442,7 @@
     }
 
     @media (prefers-color-scheme: dark) {
-      .chat-messages.has-cover {
+      #chat-cover.has-cover {
         background-image: linear-gradient(rgba(0, 0, 0, .35), rgba(0, 0, 0, .35)), var(--chat-cover-image);
       }
 
@@ -1074,6 +1080,7 @@
 
   <!-- Chat Screen -->
   <div id="app" class="screen">
+    <div id="chat-cover" aria-hidden="true"></div>
     <header class="chat-header">
       <div class="header-user-info">
         <div class="header-avatar" id="current-user-avatar">DN</div>

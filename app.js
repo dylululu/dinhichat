@@ -49,6 +49,7 @@
 
   const imgOverlay = document.getElementById('img-overlay');
   const imgOverlayImg = document.getElementById('img-overlay-img');
+  const coverElement = document.getElementById('chat-cover');
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
@@ -159,14 +160,16 @@
   }
 
   function applyCoverUrl(url) {
-    messagesContainer.style.setProperty('--chat-cover-image', `url("${url}")`);
+    coverElement.style.setProperty('--chat-cover-image', `url("${url}")`);
+    coverElement.classList.add('has-cover');
     messagesContainer.classList.add('has-cover');
   }
 
   async function applyCoverPath(path, forceRefresh = false) {
     if (!path) {
+      coverElement.classList.remove('has-cover');
+      coverElement.style.removeProperty('--chat-cover-image');
       messagesContainer.classList.remove('has-cover');
-      messagesContainer.style.removeProperty('--chat-cover-image');
       try {
         localStorage.removeItem(COVER_PATH_KEY);
         localStorage.removeItem(COVER_URL_KEY);
@@ -176,6 +179,7 @@
     }
 
     lsSet(COVER_PATH_KEY, path);
+    coverElement.classList.add('has-cover');
     messagesContainer.classList.add('has-cover');
     const now = Date.now();
     let cached = coverUrlCache.get(path);
@@ -219,6 +223,7 @@
         coverUrlCache.set(path, saved);
         applyCoverUrl(saved.url);
       } else {
+        coverElement.classList.add('has-cover');
         messagesContainer.classList.add('has-cover');
       }
     }
@@ -356,15 +361,14 @@
     });
   }
 
-  function resizeMessageInput() {
+  function resizeMessageInput(shouldFollow = messagesNearBottom) {
     if (messageInput.tagName !== 'TEXTAREA') return;
-    const nearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
     messageInput.style.height = 'auto';
     const contentHeight = messageInput.scrollHeight;
     const height = Math.max(40, Math.min(contentHeight, 120));
     messageInput.style.height = height + 'px';
     messageInput.style.overflowY = contentHeight > 120 ? 'auto' : 'hidden';
-    if (nearBottom) requestAnimationFrame(() => { messagesContainer.scrollTop = messagesContainer.scrollHeight; });
+    followMessagesAfterResize(shouldFollow);
   }
 
   function replySnippet(message, maxLength = 20) {
@@ -649,7 +653,23 @@
   }
 
   function nearMessagesBottom() {
-    return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
+    return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 150;
+  }
+
+  let messagesNearBottom = true;
+  function followMessagesAfterResize(shouldFollow = messagesNearBottom) {
+    if (!shouldFollow) return;
+    requestAnimationFrame(() => {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
+  }
+
+  messagesContainer.addEventListener('scroll', () => {
+    messagesNearBottom = nearMessagesBottom();
+  }, { passive: true });
+  if ('ResizeObserver' in window) {
+    const messagesResizeObserver = new ResizeObserver(() => followMessagesAfterResize());
+    messagesResizeObserver.observe(messagesContainer);
   }
 
   function scrollMessagesToBottom() {
@@ -1809,6 +1829,7 @@
   messageInput.addEventListener('input', () => { resizeMessageInput(); updateSendButtonVisibility(); sendTyping(); });
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    else if (e.key === 'Enter' && e.shiftKey) followMessagesAfterResize(messagesNearBottom);
   });
   resizeMessageInput();
   updateSendButtonVisibility();
