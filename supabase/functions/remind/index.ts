@@ -53,6 +53,21 @@ Deno.serve(async (req: Request) => {
 
     for (const m of messages) {
       try {
+        const { data: newerMessages, error: newerErr } = await supabase
+          .from("messages")
+          .select("id")
+          .eq("sender_id", m.sender_id)
+          .gt("created_at", m.created_at)
+          .limit(1);
+
+        if (newerErr) throw newerErr;
+        if (newerMessages && newerMessages.length > 0) {
+          const { error } = await supabase.from("messages")
+            .update({ remind_done: true }).eq("id", m.id);
+          if (error) throw error;
+          continue;
+        }
+
         const { data: replies } = await supabase
           .from("messages")
           .select("id")

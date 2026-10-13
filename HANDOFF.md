@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, login, typing-indicator, attach menu, preview ảnh, thanh chat responsive.
-- `app.js`: Logic client (initChat, ensurePush, addMsg, sendMessage, syncMessages, subscribeRoom, markRead, renderSeen, sendTyping, showTyping, cache).
+- `index.html`: UI chat, thanh trả lời, vuốt để trả lời, typing-indicator, ảnh, thanh chat responsive.
+- `app.js`: Logic client (initChat, ensurePush, addMsg, startReply, enableSwipeReply, sendMessage, syncMessages, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -19,10 +19,11 @@
 - `supabase/functions/remind/index.ts`: Edge Function kiểm tra chưa rep và push nhắc nhở (x-cron-secret).
 - `supabase/cron.local.sql`: Script mẫu lệnh `cron.schedule` gọi edge function `remind`.
 - `supabase/migrations/005_read.sql`: Thêm read_at, policy update cho người nhận, trigger bảo vệ tin nhắn.
+- `supabase/migrations/006_reply_to.sql`: Thêm reply_to và bảo vệ cột này khỏi bị sửa.
 
 ## Database
-- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, remind_mode, remind_count, next_remind_at, remind_done, read_at). Bucket: `chat-images`.
-- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`.
+- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, reply_to, remind_mode, remind_count, next_remind_at, remind_done, read_at). Bucket: `chat-images`.
+- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`, `006_reply_to.sql`.
 - Functions deployed: `notify`, `remind`.
 
 ## Đã xong
@@ -32,15 +33,17 @@
 - Cache localStorage 100 tin, đồng bộ nhanh khi mở/focus/click thông báo.
 - Nhắc lại tin nhắn (chế độ none/1/2/loop, hiện icon 🔔/🔁, trigger đặt next_remind_at, cron job định kỳ).
 - Chế độ nhắc áp dụng cho một tin gửi; sau khi gửi thành công tự về “Không nhắc”, không lưu lựa chọn cũ.
+- Khi có tin mới từ cùng người gửi, Edge Function hủy các nhắc còn chờ của tin cũ.
 - Tinh chỉnh CSS thanh nhập tin nhắn responsive không tràn màn hình điện thoại.
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
 - Khung nhập chat nhiều dòng tự giãn; bỏ dòng mô tả nhắc dưới thanh nhập.
+- Vuốt phải tin nhắn để trả lời, trích dẫn tin gốc và tự cuộn tới tin đó.
 
 ## Đang làm / Dở dang
-- Kiểm tra bằng `npx serve .`, tự chạy git add/commit/push lên GitHub, xóa icon iPhone rồi thêm lại.
+- Bạn làm tay: thử bằng `npx serve .`, tự git push, xóa icon iPhone rồi thêm lại.
 
 ## Lỗi đã biết / Lưu ý
 - Kết nối trực tiếp DB bị chặn pass; chạy migration qua Supabase Management Query API.

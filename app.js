@@ -25,6 +25,9 @@
   const messagesContainer = document.getElementById('messages-container');
   const messageInput = document.getElementById('message-input');
   const btnSend = document.getElementById('btn-send');
+  const replyBar = document.getElementById('reply-bar');
+  const replyBarText = document.getElementById('reply-bar-text');
+  const replyCancel = document.getElementById('reply-cancel');
 
   const btnAttach = document.getElementById('btn-attach');
   const attachMenu = document.getElementById('attach-menu');
@@ -48,7 +51,9 @@
   const messageIds = new Set();
   const signedUrlCache = new Map();
   const profilesMap = new Map();
+  const messageCache = new Map();
   let ensurePushPromise = null;
+  let activeReply = null;
 
   try { navigator.storage?.persist().catch(() => {}); } catch {}
 
@@ -93,6 +98,127 @@
     const height = Math.min(messageInput.scrollHeight, 120);
     messageInput.style.height = height + 'px';
     messageInput.style.overflowY = messageInput.scrollHeight > 120 ? 'auto' : 'hidden';
+  }
+
+  function replySnippet(message, maxLength = 20) {
+    if (!message) return 'Tin nhắn không còn';
+    if (message.image_path && !message.content) return '📷 Ảnh';
+    const text = (message.content || (message.image_path ? '📷 Ảnh' : '')).trim();
+    return text.length > maxLength ? text.slice(0, maxLength) + '…' : (text || 'Tin nhắn không còn');
+  }
+
+  function senderName(message) {
+    return profilesMap.get(message.sender_id)?.name || 'Iu dấu';
+  }
+
+  function clearReply() {
+    activeReply = null;
+    replyBar.style.display = 'none';
+    replyBarText.textContent = '';
+  }
+
+  function startReply(message) {
+    if (!message || !message.id) return;
+    activeReply = message;
+    replyBarText.textContent = '↩ ' + senderName(message) + ': ' + replySnippet(message);
+    replyBar.style.display = 'flex';
+    messageInput.focus();
+  }
+
+  async function getMessageById(id) {
+    if (!id) return null;
+    if (messageCache.has(id)) return messageCache.get(id);
+    const row = document.getElementById('msg-' + id);
+    if (row?.dataset.msg) {
+      try {
+        const message = JSON.parse(row.dataset.msg);
+        messageCache.set(message.id, message);
+        return message;
+      } catch {}
+    }
+    const cached = lsGet(CACHE_MSGS_KEY);
+    const message = Array.isArray(cached) ? cached.find((item) => item.id === id) : null;
+    if (message) {
+      messageCache.set(message.id, message);
+      return message;
+    }
+    const { data, error } = await supabase.from('messages').select('*').eq('id', id).maybeSingle();
+    if (error) { console.error('Không tải được tin trả lời:', error); return null; }
+    if (data) messageCache.set(data.id, data);
+    return data || null;
+  }
+
+  function scrollToOriginalMessage(id) {
+    const row = document.getElementById('msg-' + id);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('reply-flash');
+    setTimeout(() => row.classList.remove('reply-flash'), 1000);
+  }
+
+  function createReplyQuote(replyTo) {
+    const quote = document.createElement('div');
+    quote.className = 'reply-quote';
+    const name = document.createElement('div');
+    name.className = 'reply-quote-name';
+    const text = document.createElement('div');
+    text.className = 'reply-quote-text';
+    quote.append(name, text);
+    quote.addEventListener('click', () => scrollToOriginalMessage(replyTo));
+    getMessageById(replyTo).then((original) => {
+      if (original) {
+        name.textContent = senderName(original);
+        text.textContent = replySnippet(original, 120);
+      } else {
+        name.textContent = '';
+        text.textContent = 'Tin nhắn không còn';
+      }
+    });
+    return quote;
+  }
+
+  function enableSwipeReply(row, message) {
+    const icon = document.createElement('div');
+    icon.className = 'reply-swipe-icon';
+    icon.textContent = '↩';
+    row.appendChild(icon);
+    let startX = 0;
+    let startY = 0;
+    let distance = 0;
+    let horizontal = false;
+
+    row.addEventListener('touchstart', (event) => {
+      const touch = event.touches[0];
+      startX = touch.clientX;
+      startY = touch.clientY;
+      distance = 0;
+      horizontal = false;
+      row.style.transition = '';
+    }, { passive: true });
+
+    row.addEventListener('touchmove', (event) => {
+      const touch = event.touches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (!horizontal && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) horizontal = true;
+      if (!horizontal || dx <= 0) return;
+      event.preventDefault();
+      distance = Math.min(dx, 84);
+      row.classList.add('swiping');
+      row.style.transform = 'translateX(' + distance + 'px)';
+    }, { passive: false });
+
+    row.addEventListener('touchend', () => {
+      const activate = horizontal && distance > 60;
+      row.classList.remove('swiping');
+      row.style.transition = 'transform 180ms ease-out';
+      row.style.transform = '';
+      if (activate) {
+        try { navigator.vibrate?.(15); } catch {}
+        startReply(message);
+      }
+      setTimeout(() => { row.style.transition = ''; }, 200);
+    }, { passive: true });
   }
 
   // ─── Service Worker ──────────────────────────────────────────────────────────
@@ -357,6 +483,7 @@
   // ─── Render one message (addMsg) ─────────────────────────────────────────────
   async function addMsg(message, scroll = true) {
     if (!message || !message.id) return;
+    messageCache.set(message.id, message);
     if (messageIds.has(message.id)) {
       if (message.read_at) {
         const existingRow = document.getElementById('msg-' + message.id);
@@ -379,9 +506,12 @@
     // Store raw msg JSON on element for cache
     try { row.dataset.msg = JSON.stringify(message); } catch {}
 
+    const replyQuote = message.reply_to ? createReplyQuote(message.reply_to) : null;
+
     if (message.image_path) {
       const wrap = document.createElement('div');
       wrap.className = 'msg-image-wrap';
+      if (replyQuote) wrap.appendChild(replyQuote);
       const img = document.createElement('img');
       img.className = 'msg-image';
       img.loading = 'lazy';
@@ -411,7 +541,10 @@
     } else {
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble';
-      bubble.textContent = message.content || '';
+      if (replyQuote) bubble.appendChild(replyQuote);
+      const content = document.createElement('span');
+      content.textContent = message.content || '';
+      bubble.appendChild(content);
       row.appendChild(bubble);
     }
 
@@ -425,6 +558,7 @@
     row.appendChild(time);
 
     messagesContainer.appendChild(row);
+    enableSwipeReply(row, message);
     renderSeen();
     if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
@@ -522,7 +656,7 @@
   }
 
   // ─── Upload image ─────────────────────────────────────────────────────────────
-  async function uploadAndSendImage(file, captionText) {
+  async function uploadAndSendImage(file, captionText, replyToId = null) {
     const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     const tempRow = document.createElement('div');
     tempRow.id = tempId;
@@ -544,12 +678,14 @@
       if (upErr) throw upErr;
       const insertData = { image_path: path, sender_id: currentUser.id };
       if (captionText) insertData.content = captionText;
+      if (replyToId) insertData.reply_to = replyToId;
       const remindSelect = document.getElementById('remind-select');
       insertData.remind_mode = remindSelect ? remindSelect.value : 'none';
       const { error: insErr } = await supabase.from('messages').insert(insertData);
       if (insErr) throw insErr;
       if (remindSelect) remindSelect.value = 'none';
       removeTempBubble(tempId);
+      return true;
     } catch (err) {
       console.error('Lỗi gửi ảnh:', err);
       const errRow = document.getElementById(tempId);
@@ -565,10 +701,11 @@
         const retryBtn = document.createElement('button');
         retryBtn.textContent = ' Thử lại';
         retryBtn.style.cssText = 'margin-left:8px;background:transparent;border:none;color:#e91e63;font-weight:bold;cursor:pointer;font-size:13px;';
-        retryBtn.addEventListener('click', () => { removeTempBubble(tempId); uploadAndSendImage(file, captionText); });
+        retryBtn.addEventListener('click', () => { removeTempBubble(tempId); uploadAndSendImage(file, captionText, replyToId); });
         errBubble.appendChild(retryBtn);
         errRow.appendChild(errBubble);
       }
+      return false;
     }
   }
 
@@ -580,9 +717,13 @@
       messageInput.value = '';
       resizeMessageInput();
     }
+    const replyToId = activeReply?.id || null;
+    let allSent = true;
     for (let i = 0; i < files.length; i++) {
-      await uploadAndSendImage(files[i], i === 0 ? caption : '');
+      const sent = await uploadAndSendImage(files[i], i === 0 ? caption : '', replyToId);
+      if (!sent) allSent = false;
     }
+    if (allSent && replyToId) clearReply();
   }
 
   // ─── Attach menu ─────────────────────────────────────────────────────────────
@@ -609,22 +750,27 @@
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
-    messageInput.value = '';
-    resizeMessageInput();
     sendStopTyping();
     btnSend.disabled = true;
     
     const remindSelect = document.getElementById('remind-select');
     const remindMode = remindSelect ? remindSelect.value : 'none';
     
+    const replyToId = activeReply?.id || null;
     const { error } = await supabase.from('messages').insert({ 
       content: text, 
       sender_id: currentUser.id,
-      remind_mode: remindMode
+      remind_mode: remindMode,
+      reply_to: replyToId
     });
     
     btnSend.disabled = false;
-    if (!error && remindSelect) remindSelect.value = 'none';
+    if (!error) {
+      messageInput.value = '';
+      resizeMessageInput();
+      if (remindSelect) remindSelect.value = 'none';
+      clearReply();
+    }
     messageInput.focus();
     if (error) { console.error('Lỗi gửi:', error); alert('Không gửi được tin nhắn: ' + error.message); }
   }
@@ -708,6 +854,7 @@
 
   btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
   btnSend.addEventListener('click', sendMessage);
+  replyCancel.addEventListener('click', clearReply);
   messageInput.addEventListener('input', () => { resizeMessageInput(); sendTyping(); });
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
