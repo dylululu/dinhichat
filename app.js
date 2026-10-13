@@ -52,6 +52,45 @@
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
+  let viewportKeyboardOpen = false;
+
+  function syncVisualViewport() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const focused = document.activeElement;
+    const editing = focused && (focused.matches('input, textarea, select') || focused.isContentEditable);
+    const keyboardOpen = editing && viewport.height < window.innerHeight - 120;
+    const top = keyboardOpen ? viewport.offsetTop : 0;
+    const left = keyboardOpen ? viewport.offsetLeft : 0;
+    const width = keyboardOpen ? viewport.width : window.innerWidth;
+    const height = keyboardOpen ? viewport.height : null;
+    [authScreen, chatScreen].forEach((screen) => {
+      screen.style.top = `${top}px`;
+      screen.style.left = `${left}px`;
+      screen.style.width = `${width}px`;
+      screen.style.height = height ? `${height}px` : '100dvh';
+      screen.style.right = 'auto';
+      screen.style.bottom = 'auto';
+    });
+    if (sendGatherOverlay) {
+      sendGatherOverlay.style.top = `${top}px`;
+      sendGatherOverlay.style.left = `${left}px`;
+      sendGatherOverlay.style.width = `${width}px`;
+      sendGatherOverlay.style.height = height ? `${height}px` : '100dvh';
+    }
+    if (keyboardOpen && !viewportKeyboardOpen) {
+      requestAnimationFrame(() => messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' }));
+    }
+    viewportKeyboardOpen = keyboardOpen;
+    try { window.scrollTo(0, 0); } catch {}
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncVisualViewport);
+    window.visualViewport.addEventListener('scroll', syncVisualViewport);
+    window.addEventListener('resize', syncVisualViewport);
+    syncVisualViewport();
+  }
 
   let currentUser = null;
   let currentProfile = null;
@@ -651,6 +690,149 @@
     }
   }
 
+  function captureTextFlightSource() {
+    try {
+      const rect = messageInput.getBoundingClientRect();
+      const style = getComputedStyle(messageInput);
+      return {
+        left: rect.left + parseFloat(style.paddingLeft || '0'),
+        top: rect.top + parseFloat(style.paddingTop || '0'),
+        width: Math.max(40, rect.width - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0')),
+        height: Math.max(24, rect.height - parseFloat(style.paddingTop || '0') - parseFloat(style.paddingBottom || '0')),
+        font: style.font,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight,
+        letterSpacing: style.letterSpacing,
+        color: style.color,
+        textAlign: style.textAlign
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function canStartSendVisualEffect() {
+    try {
+      return !sendGatherRunning && !document.hidden && !!sendGatherOverlay &&
+        !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  }
+
+  function revealTextMessage(row) {
+    if (!row) return;
+    const bubble = row.querySelector('.message-bubble');
+    const content = row.querySelector('.message-content');
+    if (content) content.style.opacity = '1';
+    if (bubble) {
+      bubble.style.transition = 'opacity 150ms ease';
+      bubble.style.opacity = '.6';
+      requestAnimationFrame(() => { bubble.style.opacity = '1'; });
+    }
+  }
+
+  async function animateSendTextEffect(messageRow, text, source) {
+    let textFly = null;
+    let particles = [];
+    let ownsEffect = false;
+    const cancelOnHide = () => {
+      if (document.hidden) sendGatherAnimations.forEach((animation) => animation.cancel());
+    };
+    try {
+      if (!text || !source || !canStartSendVisualEffect() || typeof Element.prototype.animate !== 'function') return false;
+      sendGatherRunning = true;
+      ownsEffect = true;
+      document.addEventListener('visibilitychange', cancelOnHide);
+
+      const rowRect = messageRow?.getBoundingClientRect();
+      const listRect = messagesContainer.getBoundingClientRect();
+      const targetX = rowRect?.width ? rowRect.left + rowRect.width / 2 : listRect.left + listRect.width / 2;
+      const targetY = rowRect?.height ? rowRect.top + rowRect.height / 2 : listRect.top + listRect.height / 2;
+      textFly = document.createElement('span');
+      textFly.className = 'send-flying-text';
+      textFly.textContent = Array.from(text).length > 40 ? `${Array.from(text).slice(0, 40).join('')}…` : text;
+      Object.assign(textFly.style, {
+        left: `${source.left}px`, top: `${source.top}px`, width: `${source.width}px`,
+        maxHeight: `${source.height}px`, font: source.font, fontFamily: source.fontFamily,
+        fontSize: source.fontSize, fontWeight: source.fontWeight, lineHeight: source.lineHeight,
+        letterSpacing: source.letterSpacing, color: source.color, textAlign: source.textAlign
+      });
+      sendGatherOverlay.appendChild(textFly);
+      const startX = source.left;
+      const startY = source.top;
+      const dx = targetX - startX;
+      const dy = targetY - startY;
+      const flight = textFly.animate([
+        { transform: 'translate(0, 0) scale(1)', opacity: 1, offset: 0 },
+        { transform: `translate(${dx * .55}px, ${dy * .55 - 18}px) scale(.95)`, opacity: .92, offset: .55 },
+        { transform: `translate(${dx}px, ${dy}px) scale(.9)`, opacity: .78, offset: 1 }
+      ], { duration: 450, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+      sendGatherAnimations = [flight];
+      await flight.finished.catch(() => {});
+      if (document.hidden) return false;
+
+      revealTextMessage(messageRow);
+      const displayText = textFly.textContent;
+      textFly.remove();
+      textFly = null;
+      const endX = targetX;
+      const endY = targetY;
+      const glyphs = Array.from(displayText)
+        .filter((character) => !/\s/.test(character)).slice(0, 24);
+      for (let i = 0; i < glyphs.length; i++) {
+        const character = document.createElement('span');
+        character.className = 'send-flying-character';
+        character.textContent = glyphs[i];
+        character.style.left = `${endX + (Math.random() - .5) * 18}px`;
+        character.style.top = `${endY + (Math.random() - .5) * 10}px`;
+        sendGatherOverlay.appendChild(character);
+        particles.push(character);
+      }
+      const charsText = particles.map((character) => character.animate([
+        { transform: 'translate(0, 0) rotate(0deg) scale(1)', opacity: .95 },
+        {
+          transform: `translate(${Math.round(Math.random() * 80 - 40)}px, ${Math.round(-10 - Math.random() * 40)}px) rotate(${Math.round(Math.random() * 40 - 20)}deg) scale(.65)`,
+          opacity: 0
+        }
+      ], { duration: 500, delay: Math.floor(Math.random() * 121), easing: 'ease-out', fill: 'forwards' }));
+      const hearts = 3 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < hearts; i++) {
+        const heart = document.createElement('span');
+        heart.className = 'send-flying-heart';
+        heart.textContent = '💗';
+        heart.style.left = `${endX + (Math.random() - .5) * 24}px`;
+        heart.style.top = `${endY + (Math.random() - .5) * 14}px`;
+        sendGatherOverlay.appendChild(heart);
+        particles.push(heart);
+        charsText.push(heart.animate([
+          { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+          {
+            transform: `translate(${Math.round(Math.random() * 80 - 40)}px, ${Math.round(-10 - Math.random() * 40)}px) scale(.5)`,
+            opacity: 0
+          }
+        ], { duration: 500, delay: Math.floor(Math.random() * 121), easing: 'ease-out', fill: 'forwards' }));
+      }
+      sendGatherAnimations = charsText;
+      await Promise.all(charsText.map((animation) => animation.finished.catch(() => {})));
+      return !document.hidden;
+    } catch (error) {
+      console.warn('Hiệu ứng chữ bay bị bỏ qua:', error);
+      return false;
+    } finally {
+      if (ownsEffect) {
+        document.removeEventListener('visibilitychange', cancelOnHide);
+        sendGatherAnimations.forEach((animation) => { try { animation.cancel(); } catch {} });
+        textFly?.remove();
+        particles.forEach((particle) => particle.remove());
+        sendGatherAnimations = [];
+        sendGatherRunning = false;
+      }
+    }
+  }
+
   function messageMatches(a, b) {
     return a.sender_id === b.sender_id && (a.content || null) === (b.content || null) &&
       (a.image_path || null) === (b.image_path || null) && (a.reply_to || null) === (b.reply_to || null) &&
@@ -693,9 +875,12 @@
   async function addOptimisticMessage(message, insertMessage, options = {}) {
     const tempId = `tmp-${Date.now()}-${++tempMessageSequence}`;
     const optimistic = { ...message, id: tempId, created_at: new Date().toISOString() };
+    const isTextMessage = !message.image_path && !message.is_sticker && !!message.content;
+    const useTextFlight = isTextMessage && !!options.textFlightSource && canStartSendVisualEffect();
     const row = await addMsg(optimistic, false, {
       temporary: true,
       animate: true,
+      hideTextContent: useTextFlight,
       localImageUrl: options.localImageUrl || null
     });
     if (!row) return;
@@ -703,7 +888,13 @@
     row.classList.add('is-sending');
     renderSeen();
     scrollMessagesToBottom();
-    animateSendGatherEffect(row);
+    if (message.image_path || message.is_sticker) {
+      animateSendGatherEffect(row);
+    } else if (useTextFlight) {
+      animateSendTextEffect(row, message.content, options.textFlightSource)
+        .then((played) => { if (!played) revealTextMessage(row); })
+        .catch(() => revealTextMessage(row));
+    }
     let restoredAfterFailure = false;
 
     const send = async () => {
@@ -1128,7 +1319,9 @@
       bubble.className = 'message-bubble';
       if (replyQuote) bubble.appendChild(replyQuote);
       const content = document.createElement('span');
+      content.className = 'message-content';
       content.textContent = message.content || '';
+      if (options.hideTextContent) content.style.opacity = '0';
       bubble.appendChild(content);
       row.appendChild(bubble);
     }
@@ -1346,6 +1539,7 @@
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
+    const textFlightSource = captureTextFlightSource();
     sendStopTyping();
     const remindSelect = document.getElementById('remind-select');
     const remindMode = remindSelect ? remindSelect.value : 'none';
@@ -1366,6 +1560,7 @@
       return data;
     }, {
       restoreText: text,
+      textFlightSource,
       onSuccess: () => {
         if (remindSelect) remindSelect.value = 'none';
         clearReply();
@@ -1400,6 +1595,7 @@
       currentUser = user;
       authScreen.classList.remove('active');
       chatScreen.classList.add('active');
+      requestAnimationFrame(syncVisualViewport);
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (profile) {
@@ -1430,6 +1626,7 @@
     hideTyping();
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
+    requestAnimationFrame(syncVisualViewport);
   }
 
   // ─── Login form ───────────────────────────────────────────────────────────────
