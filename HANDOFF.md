@@ -41,7 +41,7 @@
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
-- Bàn phím ảo #kb `.kb-top` riêng; Telex w đổi cụm `uo` thành `ươ` kể cả trước phụ âm cuối, dấu thanh đặt trên ơ; cache tọa độ phím và chèn ngay pointerdown, việc phụ qua RAF; gửi xong giữ bàn phím mở.
+- Bàn phím ảo #kb `.kb-top` riêng; Telex w đổi `uo`→`ươ`, dấu thanh đặt trên ơ; phím a/e/o/d chỉ hoàn tác khi gõ lặp đúng phím; cache tọa độ, chèn pointerdown, việc phụ qua RAF; gửi xong giữ bàn phím mở.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.

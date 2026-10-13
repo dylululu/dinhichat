@@ -322,7 +322,8 @@
     if (lowerKey === 'a' || lowerKey === 'e' || lowerKey === 'o' || lowerKey === 'd') {
       const lastChar = Array.from(clean).pop() || '';
       const inverse = { 'â':['a','a'], 'ê':['e','e'], 'ô':['o','o'], 'đ':['d','d'] }[lastChar.toLowerCase()];
-      if (inverse) {
+      const inverseKey = { 'â':'a', 'ê':'e', 'ô':'o', 'đ':'d' }[lastChar.toLowerCase()];
+      if (inverse && lowerKey === inverseKey) {
         const chars = Array.from(clean); const last = chars.pop();
         clean = chars.join('') + caseChar(last, inverse[0]) + caseChar(last, inverse[1]);
         return applyTone(clean, oldTone);
