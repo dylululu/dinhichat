@@ -322,10 +322,13 @@
     }
 
     #kb {
-      --kb-base-height: clamp(290px, 42dvh, 340px);
       position: relative;
+      display: flex;
       flex: 0 0 0;
-      height: 0;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 0;
+      height: auto;
       width: 100%;
       padding-bottom: 0;
       box-sizing: border-box;
@@ -333,7 +336,7 @@
       transform: translateY(100%);
       opacity: 0;
       visibility: hidden;
-      transition: flex-basis 220ms ease, height 220ms ease, padding-bottom 220ms ease,
+      transition: flex-basis 220ms ease, padding 220ms ease,
         transform 220ms ease, opacity 180ms ease, visibility 220ms;
       background: #fce4ec;
       color: #39232c;
@@ -343,21 +346,22 @@
       z-index: 15;
     }
     #kb.open {
-      flex-basis: calc(var(--kb-base-height) + env(safe-area-inset-bottom));
-      height: calc(var(--kb-base-height) + env(safe-area-inset-bottom));
-      padding-bottom: calc(env(safe-area-inset-bottom) + 4px);
+      flex-basis: auto;
+      height: auto;
+      padding: 8px 0 calc(env(safe-area-inset-bottom) + 6px);
+      overflow: visible;
       transform: translateY(0);
       opacity: 1;
       visibility: visible;
     }
-    .kb-grip-row { height: 18px; display: flex; justify-content: center; align-items: center; position: relative; flex: 0 0 18px; }
+    .kb-grip-row { height: 24px; display: flex; justify-content: center; align-items: center; position: relative; flex: 0 0 24px; }
     .kb-grip {
       width: 32px; height: 4px; border: 0; border-radius: 8px; background: #e4a8bc; padding: 0;
       touch-action: none;
     }
-    .kb-hide { position: absolute; right: 4px; top: -10px; width: 40px; height: 40px; border: 0; background: transparent; color: inherit; font-size: 20px; }
-    .kb-rows { display: flex; flex-direction: column; gap: 10px; padding: 2px 5px 0; height: calc(100% - 18px); box-sizing: border-box; }
-    .kb-key-row { display: flex; justify-content: center; gap: 6px; flex: 1; min-height: 40px; }
+    .kb-hide { position: absolute; right: 8px; top: 0; width: 40px; height: 40px; border: 0; background: transparent; color: inherit; font-size: 20px; z-index: 2; }
+    .kb-rows { display: flex; flex: 0 0 auto; flex-direction: column; gap: 10px; padding: 0 5px; height: auto; box-sizing: border-box; }
+    .kb-key-row { display: flex; justify-content: center; gap: 6px; flex: 0 0 46px; height: 46px; min-height: 46px; }
     .kb-key {
       flex: 1 1 0; min-width: 0; min-height: 40px; border: 0; border-radius: 6px; padding: 6px 3px;
       background: #fff; color: #33252b; box-shadow: 0 1px 0 rgba(0,0,0,.3);
@@ -374,7 +378,7 @@
     .kb-bottom-row .kb-key[data-kb-key="emoji"] { flex: 0 0 44px; font-size: 20px; }
     .kb-bottom-row .kb-key.enter { flex: 0 0 80px; }
     .kb-bottom-row .kb-key.space { min-width: 36px; }
-    .kb-letters { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 10px; }
+    .kb-letters { display: flex; flex: 0 0 auto; flex-direction: column; justify-content: flex-start; gap: 10px; }
     .kb-letters .kb-key-row, .kb-symbols .kb-key-row { flex: 0 0 46px; height: 46px; gap: 6px; }
     .kb-letters .kb-key-row:nth-child(2) .kb-key { flex: 0 0 calc((100% - 54px) / 10); }
     .kb-letters .kb-key-row:nth-child(3) { gap: 6px; }
@@ -382,9 +386,9 @@
     .kb-letters .kb-key-row:nth-child(3) .kb-key.function:last-child { margin-left: 6px; }
     .kb-key.function.shift-on { background: #fff; color: #33252b; font-size: 19px; }
     .kb-key.function.caps-lock { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-    .kb-symbols:not([hidden]) { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 10px; }
+    .kb-symbols:not([hidden]) { display: flex; flex: 0 0 auto; flex-direction: column; justify-content: flex-start; gap: 10px; }
     .kb-bottom-row { flex: 0 0 46px; height: 46px; min-height: 46px; gap: 6px; align-items: center; }
-    .kb-emoji-picker { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 3px; }
+    .kb-emoji-picker { display: none; flex: 0 0 221px; height: 221px; flex-direction: column; gap: 3px; }
     #kb.emoji-mode .kb-letters, #kb.emoji-mode .kb-symbols, #kb.emoji-mode .kb-bottom-row { display: none; }
     #kb.emoji-mode .kb-emoji-picker { display: flex; }
     .kb-emoji-tabs { flex: 0 0 34px; display: flex; gap: 3px; align-items: center; }
@@ -1336,7 +1340,7 @@
     </footer>
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
       <div id="kb-popover" class="kb-popover" aria-hidden="true"></div>
-      <div class="kb-grip-row"><button class="kb-grip" type="button" aria-label="Vuốt xuống để ẩn bàn phím"></button><button id="kb-hide" class="kb-hide" type="button" aria-label="Ẩn bàn phím">⌄</button></div>
+      <div class="kb-grip-row"><span class="kb-grip" aria-hidden="true"></span><button id="kb-hide" class="kb-hide" type="button" aria-label="Ẩn bàn phím">⌄</button></div>
       <div class="kb-rows">
         <div class="kb-letters">
           <div class="kb-key-row"><button class="kb-key" data-kb-key="q">q</button><button class="kb-key" data-kb-key="w">w</button><button class="kb-key" data-kb-key="e">e</button><button class="kb-key" data-kb-key="r">r</button><button class="kb-key" data-kb-key="t">t</button><button class="kb-key" data-kb-key="y">y</button><button class="kb-key" data-kb-key="u">u</button><button class="kb-key" data-kb-key="i">i</button><button class="kb-key" data-kb-key="o">o</button><button class="kb-key" data-kb-key="p">p</button></div>

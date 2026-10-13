@@ -103,8 +103,8 @@
     customKeyboard.setAttribute('aria-hidden', 'false');
     document.body.classList.add('pink-kb-open');
     pinkKeyboardOpen = true;
-    const baseHeight = Math.max(240, Math.min(320, window.innerHeight * .38));
-    document.documentElement.style.setProperty('--cover-shift', `${-Math.round(baseHeight * .35)}px`);
+    const keyboardHeight = customKeyboard.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--cover-shift', `${-Math.round(keyboardHeight * .35)}px`);
     scrollMessagesAfterKeyboard(messagesNearBottom);
   }
 
@@ -535,6 +535,10 @@
     const keyButton = event.target.closest?.('[data-kb-key]');
     if (keyButton) handleKeyboardKey(keyButton.dataset.kbKey);
   });
+  customKeyboard.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => customKeyboard.addEventListener(type, (event) => {
     if (pendingEmojiKey) {
       clearTimeout(emojiHoldTimer);
@@ -560,18 +564,9 @@
     event.preventDefault();
     if (nativeKeyboardMode) usePinkKeyboard(); else useNativeKeyboard();
   });
-  const keyboardGrip = document.querySelector('.kb-grip');
-  let keyboardGripY = null;
-  keyboardGrip?.addEventListener('pointerdown', (event) => {
-    event.preventDefault(); keyboardGripY = event.clientY;
-    try { keyboardGrip.setPointerCapture(event.pointerId); } catch {}
-  });
-  keyboardGrip?.addEventListener('pointerup', (event) => {
-    if (keyboardGripY !== null && event.clientY - keyboardGripY > 25) closePinkKeyboard();
-    keyboardGripY = null;
-  });
   document.addEventListener('pointerdown', (event) => {
-    if (pinkKeyboardOpen && !event.target.closest?.('#kb, .chat-input-bar')) closePinkKeyboard();
+    const keepPinkKeyboard = event.target.closest?.('#kb, .chat-input-bar, #cover-menu, #attach-menu, #sticker-panel, #reply-bar');
+    if (pinkKeyboardOpen && !keepPinkKeyboard) closePinkKeyboard();
     if (nativeKeyboardMode && !event.target.closest?.('.chat-input-bar')) {
       nativeKeyboardMode = false;
       document.body.classList.remove('native-keyboard-mode');
@@ -644,7 +639,7 @@
       setTimeout(() => { inputFocusPending = false; }, 800);
     });
     messageInput.addEventListener('focusout', () => {
-      if (!nativeKeyboardMode) { closePinkKeyboard(); return; }
+      if (!nativeKeyboardMode) return;
       inputFocusPending = false;
       scheduleFitViewport();
     });
@@ -2461,8 +2456,7 @@
     resizeMessageInput();
     updateSendButtonVisibility();
     animateSendButton();
-    keepMessageInputFocused();
-    await addOptimisticMessage(payload, async () => {
+    const pendingSend = addOptimisticMessage(payload, async () => {
       const { data, error } = await supabase.from('messages').insert(payload).select('*').single();
       if (error) throw error;
       return data;
@@ -2473,8 +2467,12 @@
         clearReply();
       }
     });
+    if (pinkKeyboardOpen) {
+      closePinkKeyboard();
+      scrollMessagesAfterKeyboard(true);
+    }
+    await pendingSend;
     clearReply();
-    keepMessageInputFocused();
   }
 
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
