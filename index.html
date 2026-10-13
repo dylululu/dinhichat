@@ -374,22 +374,21 @@
       padding: 0 4px;
     }
 
-    .remind-help {
-      flex: 0 0 100%;
-      width: 100%;
-      color: var(--text-muted);
-      font-size: 11px;
-      padding: 0 4px;
-    }
-
     .chat-input {
       flex: 1;
       min-width: 0;
+      height: 40px;
+      min-height: 40px;
+      max-height: 120px;
       padding: 9px 12px;
       border: 1px solid #ddd;
-      border-radius: 20px;
+      border-radius: 18px;
       font-size: 15px;
+      line-height: 1.35;
+      font-family: inherit;
       outline: none;
+      resize: none;
+      overflow-y: hidden;
     }
 
     .chat-input:focus {
@@ -578,15 +577,14 @@
       <input type="file" id="file-gallery" accept="image/*" multiple style="display:none">
 
       <button id="btn-attach" class="btn-attach" type="button">📎</button>
-      <input type="text" id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off">
+      <textarea id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off" rows="1"></textarea>
       <select id="remind-select" class="remind-select">
         <option value="none" selected>🔕 Không nhắc</option>
         <option value="1">🔔 1 lần</option>
         <option value="2">🔔 2 lần</option>
-        <option value="loop">🔁 Đến khi trả lời</option>
+        <option value="loop">🔁 Liên tục</option>
       </select>
       <button id="btn-send" class="btn-send">Gửi</button>
-      <div id="remind-help" class="remind-help"></div>
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
     </footer>

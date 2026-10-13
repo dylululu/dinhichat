@@ -38,7 +38,6 @@
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
-  const remindHelp = document.getElementById('remind-help');
 
   let currentUser = null;
   let currentProfile = null;
@@ -89,20 +88,17 @@
   if (remindSelect) {
     const savedRemind = lsGet('dinhichat_remind_mode');
     if (savedRemind) remindSelect.value = savedRemind;
-    const remindDescriptions = {
-      none: 'Không gửi thông báo nhắc.',
-      '1': 'Gửi 1 lần sau 30 giây nếu chưa có trả lời.',
-      '2': 'Gửi 2 lần, cách nhau 1 phút, nếu chưa có trả lời.',
-      loop: 'Lặp lại mỗi phút đến khi có trả lời.'
-    };
-    const updateRemindHelp = () => {
-      if (remindHelp) remindHelp.textContent = remindDescriptions[remindSelect.value] || remindDescriptions.none;
-    };
-    updateRemindHelp();
     remindSelect.addEventListener('change', () => {
       lsSet('dinhichat_remind_mode', remindSelect.value);
-      updateRemindHelp();
     });
+  }
+
+  function resizeMessageInput() {
+    if (messageInput.tagName !== 'TEXTAREA') return;
+    messageInput.style.height = '40px';
+    const height = Math.min(messageInput.scrollHeight, 120);
+    messageInput.style.height = height + 'px';
+    messageInput.style.overflowY = messageInput.scrollHeight > 120 ? 'auto' : 'hidden';
   }
 
   // ─── Service Worker ──────────────────────────────────────────────────────────
@@ -585,7 +581,10 @@
     if (!files || files.length === 0) return;
     sendStopTyping();
     const caption = messageInput.value.trim();
-    if (caption) messageInput.value = '';
+    if (caption) {
+      messageInput.value = '';
+      resizeMessageInput();
+    }
     for (let i = 0; i < files.length; i++) {
       await uploadAndSendImage(files[i], i === 0 ? caption : '');
     }
@@ -616,6 +615,7 @@
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
     messageInput.value = '';
+    resizeMessageInput();
     sendStopTyping();
     btnSend.disabled = true;
     
@@ -712,8 +712,10 @@
 
   btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
   btnSend.addEventListener('click', sendMessage);
-  messageInput.addEventListener('input', sendTyping);
-  messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendMessage(); } });
+  messageInput.addEventListener('input', () => { resizeMessageInput(); sendTyping(); });
+  messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
 
   supabase.auth.getSession().then(({ data }) => {
     if (data?.session?.user) initChat(data.session.user);

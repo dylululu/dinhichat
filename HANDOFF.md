@@ -35,7 +35,8 @@
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
-- Sửa cập nhật trạng thái nhắc cho service role; nhãn nhắc hiển thị rõ tần suất và điều kiện dừng.
+- Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
+- Khung nhập chat nhiều dòng tự giãn; bỏ dòng mô tả nhắc dưới thanh nhập.
 
 ## Đang làm / Dở dang
 - Kiểm tra bằng `npx serve .`, tự chạy git add/commit/push lên GitHub, xóa icon iPhone rồi thêm lại.
