@@ -374,6 +374,14 @@
       padding: 0 4px;
     }
 
+    .remind-help {
+      flex: 0 0 100%;
+      width: 100%;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 0 4px;
+    }
+
     .chat-input {
       flex: 1;
       min-width: 0;
@@ -572,12 +580,13 @@
       <button id="btn-attach" class="btn-attach" type="button">📎</button>
       <input type="text" id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off">
       <select id="remind-select" class="remind-select">
-        <option value="none" selected>🔕 Ko nhắc</option>
+        <option value="none" selected>🔕 Không nhắc</option>
         <option value="1">🔔 1 lần</option>
         <option value="2">🔔 2 lần</option>
-        <option value="loop">🔁 Liên tục</option>
+        <option value="loop">🔁 Đến khi trả lời</option>
       </select>
       <button id="btn-send" class="btn-send">Gửi</button>
+      <div id="remind-help" class="remind-help"></div>
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
     </footer>

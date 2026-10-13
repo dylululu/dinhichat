@@ -61,7 +61,9 @@ Deno.serve(async (req: Request) => {
           .limit(1);
 
         if (replies && replies.length > 0) {
-          await supabase.from("messages").update({ remind_done: true }).eq("id", m.id);
+          const { error } = await supabase.from("messages")
+            .update({ remind_done: true }).eq("id", m.id);
+          if (error) throw error;
           continue;
         }
 
@@ -96,14 +98,17 @@ Deno.serve(async (req: Request) => {
         let done = false;
         if (mode === '1' && newCount >= 1) done = true;
         else if (mode === '2' && newCount >= 2) done = true;
-        else if (mode === 'loop' && newCount >= 20) done = true;
 
         if (done) {
-          await supabase.from("messages").update({ remind_count: newCount, remind_done: true }).eq("id", m.id);
+          const { error } = await supabase.from("messages")
+            .update({ remind_count: newCount, remind_done: true }).eq("id", m.id);
+          if (error) throw error;
         } else {
-          // interval '60 seconds'
+          // Two-time and continuous modes repeat every minute; continuous stops on reply.
           const nextRemind = new Date(Date.now() + 60000).toISOString();
-          await supabase.from("messages").update({ remind_count: newCount, next_remind_at: nextRemind }).eq("id", m.id);
+          const { error } = await supabase.from("messages")
+            .update({ remind_count: newCount, next_remind_at: nextRemind }).eq("id", m.id);
+          if (error) throw error;
         }
 
       } catch (err) {

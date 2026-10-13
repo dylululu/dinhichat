@@ -12,6 +12,7 @@
 ## Bản đồ file
 - `index.html`: UI chat, login, typing-indicator, attach menu, preview ảnh, thanh chat responsive.
 - `app.js`: Logic client (initChat, ensurePush, addMsg, sendMessage, syncMessages, subscribeRoom, markRead, renderSeen, sendTyping, showTyping, cache).
+- `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
 - `supabase/functions/notify/index.ts`: Edge Function gửi push tức thì khi có tin nhắn mới.
@@ -34,6 +35,7 @@
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
+- Sửa cập nhật trạng thái nhắc cho service role; nhãn nhắc hiển thị rõ tần suất và điều kiện dừng.
 
 ## Đang làm / Dở dang
 - Kiểm tra bằng `npx serve .`, tự chạy git add/commit/push lên GitHub, xóa icon iPhone rồi thêm lại.

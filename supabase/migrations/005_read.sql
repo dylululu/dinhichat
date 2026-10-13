@@ -20,10 +20,14 @@ BEGIN
      OR NEW.content IS DISTINCT FROM OLD.content
      OR NEW.created_at IS DISTINCT FROM OLD.created_at
      OR NEW.image_path IS DISTINCT FROM OLD.image_path
-     OR NEW.remind_mode IS DISTINCT FROM OLD.remind_mode
-     OR NEW.remind_count IS DISTINCT FROM OLD.remind_count
-     OR NEW.next_remind_at IS DISTINCT FROM OLD.next_remind_at
-     OR NEW.remind_done IS DISTINCT FROM OLD.remind_done THEN
+     OR NEW.remind_mode IS DISTINCT FROM OLD.remind_mode THEN
+    RAISE EXCEPTION 'Message content cannot be changed';
+  END IF;
+
+  IF auth.role() IS DISTINCT FROM 'service_role'
+     AND (NEW.remind_count IS DISTINCT FROM OLD.remind_count
+       OR NEW.next_remind_at IS DISTINCT FROM OLD.next_remind_at
+       OR NEW.remind_done IS DISTINCT FROM OLD.remind_done) THEN
     RAISE EXCEPTION 'Only read_at can be updated';
   END IF;
   RETURN NEW;

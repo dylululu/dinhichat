@@ -38,6 +38,7 @@
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
+  const remindHelp = document.getElementById('remind-help');
 
   let currentUser = null;
   let currentProfile = null;
@@ -88,8 +89,19 @@
   if (remindSelect) {
     const savedRemind = lsGet('dinhichat_remind_mode');
     if (savedRemind) remindSelect.value = savedRemind;
+    const remindDescriptions = {
+      none: 'Không gửi thông báo nhắc.',
+      '1': 'Gửi 1 lần sau 30 giây nếu chưa có trả lời.',
+      '2': 'Gửi 2 lần, cách nhau 1 phút, nếu chưa có trả lời.',
+      loop: 'Lặp lại mỗi phút đến khi có trả lời.'
+    };
+    const updateRemindHelp = () => {
+      if (remindHelp) remindHelp.textContent = remindDescriptions[remindSelect.value] || remindDescriptions.none;
+    };
+    updateRemindHelp();
     remindSelect.addEventListener('change', () => {
       lsSet('dinhichat_remind_mode', remindSelect.value);
+      updateRemindHelp();
     });
   }
 
