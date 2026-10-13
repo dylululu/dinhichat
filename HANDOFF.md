@@ -11,7 +11,7 @@
 
 ## Bản đồ file
 - `index.html`: UI chat, #kb bàn phím hồng, Telex/emoji và 🌐 chuyển bàn phím iOS; #chat-cover cố định 100lvh+120px, trượt parallax, sticker tray, trả lời, ảnh; viewport 1x.
-- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardKey, convertTelexAtCaret, fitViewport RAF + visualViewport, cuộn list/ResizeObserver, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardKey, telex(word,key) theo từ/con trỏ và vị trí dấu, fitViewport RAF + visualViewport, cuộn list/ResizeObserver, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -41,14 +41,14 @@
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
-- Bàn phím ảo #kb có Telex, emoji lưới 8 cột, chèn bằng setRangeText, recents và xóa theo grapheme; 🌐 đổi bàn phím iOS, #chat-cover trượt parallax.
+- Bàn phím ảo #kb bố cục kiểu iPhone, hồng/tối, shift/caps và #+=; Telex telex(word,key) xử lý từ gần con trỏ, đặt dấu theo cụm nguyên âm, emoji lưới 8 cột và xóa theo grapheme; giữ chuyển bàn phím iOS bằng chạm giữ 😊.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
 
 ## Đang làm / Dở dang
-- Bạn làm tay: `npx serve .` thử, tự git push, xóa icon iPhone rồi thêm lại, thử bàn phím trên iPhone thật.
+- Bạn làm tay: `npx serve .` thử bằng chế độ điện thoại, tự git push, xóa icon iPhone rồi thêm lại, thử bàn phím trên iPhone thật.
 
 ## Lỗi đã biết / Lưu ý
 - Kết nối trực tiếp DB bị chặn pass; chạy migration qua Supabase Management Query API.

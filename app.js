@@ -87,6 +87,10 @@
   let keyboardTelex = true;
   let deleteRepeatTimer = null;
   let deleteRepeatStart = null;
+  let emojiHoldTimer = null;
+  let emojiHoldFired = false;
+  let pendingEmojiKey = null;
+  let alternateSymbols = false;
 
   function openPinkKeyboard() {
     if (!customKeyboard || stickerPanel?.classList.contains('open')) return;
@@ -145,7 +149,6 @@
     messageInput.setSelectionRange(caret, caret);
   }
 
-  const telexPairs = { aa: 'â', aw: 'ă', ee: 'ê', oo: 'ô', ow: 'ơ', uw: 'ư', dd: 'đ' };
   const toneFamilies = {
     a: ['a','á','à','ả','ã','ạ'], ă: ['ă','ắ','ằ','ẳ','ẵ','ặ'], â: ['â','ấ','ầ','ẩ','ẫ','ậ'],
     e: ['e','é','è','ẻ','ẽ','ẹ'], ê: ['ê','ế','ề','ể','ễ','ệ'], i: ['i','í','ì','ỉ','ĩ','ị'],
@@ -167,44 +170,149 @@
     return emojiPattern.test(previous) || emojiPattern.test(prefix);
   }
 
-  function convertTelexAtCaret() {
-    const caret = messageInput.selectionStart;
-    const prefix = messageInput.value.slice(0, caret);
-    const tokenMatch = prefix.match(/[\p{L}\p{M}]+$/u);
-    if (!tokenMatch) return;
-    const start = caret - tokenMatch[0].length;
-    if (previousGraphemeIsEmoji(prefix, start)) return;
-    let word = tokenMatch[0];
-    const lower = word.toLowerCase();
-    const pair = Object.keys(telexPairs).find((candidate) => lower.endsWith(candidate));
-    if (pair) {
-      const replacement = telexPairs[pair];
-      const pairChars = word.slice(-2);
-      const upper = pairChars !== pairChars.toLowerCase();
-      replaceComposerRange(caret - 2, caret, upper ? replacement.toUpperCase() : replacement);
-      return;
+  const toneKeys = { s: 1, f: 2, r: 3, x: 4, j: 5 };
+  const vowelBases = new Set(['a','ă','â','e','ê','i','o','ô','ơ','u','ư','y']);
+  const plainBase = (char) => (toneBase[char] || char).toLowerCase();
+  const plainWord = (word) => Array.from(word, (char) => toneBase[char] || char).join('');
+  const toneOf = (char) => {
+    const base = plainBase(char);
+    const family = toneFamilies[base];
+    if (!family) return 0;
+    const current = char.toLowerCase();
+    return family.findIndex((form) => form === current);
+  };
+  const withShape = (char, target) => char === char.toUpperCase() ? target.toUpperCase() : target;
+
+  function telexVowels(word) {
+    const chars = Array.from(word);
+    const bases = chars.map(plainBase);
+    const result = [];
+    for (let i = 0; i < bases.length; i++) {
+      if (!vowelBases.has(bases[i])) continue;
+      if (bases[i] === 'u' && i > 0 && bases[i - 1] === 'q') continue;
+      if (bases[i] === 'i' && i > 0 && bases[i - 1] === 'g' && i + 1 < bases.length && vowelBases.has(bases[i + 1])) continue;
+      result.push(i);
     }
-    const toneIndex = { s: 1, f: 2, r: 3, x: 4, j: 5 }[lower.slice(-1)];
-    if (toneIndex) {
-      word = word.slice(0, -1);
-      const chars = Array.from(word);
-      for (let i = chars.length - 1; i >= 0; i--) {
-        const base = (toneBase[chars[i]] || chars[i].toLowerCase()).toLowerCase();
-        const family = toneFamilies[base];
-        if (!family) continue;
-        const upper = chars[i] === chars[i].toUpperCase();
-        chars[i] = upper ? family[toneIndex].toUpperCase() : family[toneIndex];
-        replaceComposerRange(start, caret, chars.join(''));
-        return;
-      }
-      return;
-    }
-    if (lower.endsWith('z')) {
-      const source = Array.from(word.slice(0, -1));
-      const chars = source.map((char) => toneBase[char] || char);
-      if (source.some((char, index) => char !== chars[index])) replaceComposerRange(start, caret, chars.join(''));
-    }
+    return { chars, bases, indices: result };
   }
+
+  function toneTarget(word) {
+    const { chars, bases, indices } = telexVowels(word);
+    if (!indices.length) return -1;
+    const shaped = indices.filter((i) => ['ă','â','ê','ô','ơ','ư'].includes(bases[i]));
+    if (shaped.length) {
+      const roundedO = shaped.filter((i) => bases[i] === 'ơ' && i > 0 && ['ư','u'].includes(bases[i - 1]));
+      if (roundedO.length) return roundedO[roundedO.length - 1];
+      return shaped[shaped.length - 1];
+    }
+    const selected = indices.map((i) => bases[i]);
+    if (selected.slice(-3).join('') === 'uye') return indices[indices.length - 1];
+    if (indices.length === 1) return indices[0];
+    if (indices.length === 2) {
+      const endsInConsonant = !vowelBases.has(bases[bases.length - 1]);
+      const pair = selected.join('');
+      if (endsInConsonant || ['oe','uy','uê'].includes(pair)) return indices[1];
+      return indices[0];
+    }
+    if (indices.length === 3) return indices[1];
+    return indices[Math.floor(indices.length / 2)];
+  }
+
+  function applyTone(word, tone) {
+    const target = toneTarget(word);
+    if (target < 0) return word;
+    const chars = Array.from(word);
+    const base = plainBase(chars[target]);
+    const family = toneFamilies[base];
+    if (!family) return word;
+    const upper = chars[target] === chars[target].toUpperCase();
+    chars[target] = upper ? family[tone].toUpperCase() : family[tone];
+    return chars.join('');
+  }
+
+  function telex(word, key) {
+    if (!/^[a-z]$/i.test(key) || !/^[\p{Script=Latin}]*$/u.test(word)) return word + key;
+    const lowerKey = key.toLowerCase();
+    const caseChar = (char, target) => withShape(char, target);
+    const oldChars = Array.from(word);
+    let oldTone = 0;
+    oldChars.forEach((char) => { if (toneOf(char) > 0) oldTone = toneOf(char); });
+    let clean = plainWord(word);
+
+    if (lowerKey === 'z') {
+      if (oldTone) return clean;
+      return clean + key;
+    }
+
+    if (toneKeys[lowerKey]) {
+      if (lowerKey === 'j' && clean.toLowerCase().startsWith('dươc')) clean = (clean[0] === clean[0].toUpperCase() ? 'Đ' : 'đ') + clean.slice(1);
+      const target = toneTarget(clean);
+      if (target < 0) return clean.toLowerCase().endsWith(lowerKey) ? clean : clean + key;
+      if (oldTone === toneKeys[lowerKey]) return clean + key;
+      return applyTone(clean, toneKeys[lowerKey]);
+    }
+
+    if (lowerKey === 'w') {
+      const chars = Array.from(clean);
+      const bases = chars.map(plainBase);
+      // Retyping w reverses the just-applied shape and leaves a literal w.
+      if (chars.length && ['ă','ơ','ư'].includes(bases[bases.length - 1])) {
+        const last = bases.length - 1;
+        const undo = { 'ă':'a', 'ơ':'o', 'ư':'u' }[bases[last]];
+        if (last > 0 && ['ư','u'].includes(bases[last - 1]) && ['ơ','o'].includes(bases[last])) {
+          chars[last - 1] = caseChar(chars[last - 1], 'u');
+          chars[last] = caseChar(chars[last], 'o');
+          return applyTone(chars.join('') + key, oldTone);
+        }
+        chars[last] = caseChar(chars[last], undo);
+        return applyTone(chars.join('') + key, oldTone);
+      }
+      // w changes a contiguous uo/ưo cluster together, except qu.
+      for (let i = bases.length - 1; i > 0; i--) {
+        if (['u','ư'].includes(bases[i - 1]) && ['o','ơ'].includes(bases[i]) && !(i - 1 > 0 && bases[i - 2] === 'q')) {
+          // “thuở” keeps the u plain; w shapes only its final o.
+          if (bases.slice(0, i - 1).join('') === 'th') {
+            chars[i] = caseChar(chars[i], 'ơ');
+            return applyTone(chars.join(''), oldTone);
+          }
+          chars[i - 1] = caseChar(chars[i - 1], 'ư');
+          chars[i] = caseChar(chars[i], 'ơ');
+          return applyTone(chars.join(''), oldTone);
+        }
+      }
+      // Otherwise modify the nearest eligible vowel in the trailing vowel run.
+      for (let i = bases.length - 1; i >= 0; i--) {
+        if (!vowelBases.has(bases[i])) break;
+        if (['a','o','u'].includes(bases[i]) && !(bases[i] === 'u' && i > 0 && bases[i - 1] === 'q')) {
+          chars[i] = caseChar(chars[i], { a:'ă', o:'ơ', u:'ư' }[bases[i]]);
+          return applyTone(chars.join(''), oldTone);
+        }
+      }
+      if (!clean) return 'ư';
+      return clean + key;
+    }
+
+    if (lowerKey === 'a' || lowerKey === 'e' || lowerKey === 'o' || lowerKey === 'd') {
+      const lastChar = Array.from(clean).pop() || '';
+      const inverse = { 'â':['a','a'], 'ê':['e','e'], 'ô':['o','o'], 'đ':['d','d'] }[lastChar.toLowerCase()];
+      if (inverse) {
+        const chars = Array.from(clean); const last = chars.pop();
+        clean = chars.join('') + caseChar(last, inverse[0]) + caseChar(last, inverse[1]);
+        return applyTone(clean, oldTone);
+      }
+      const chars = Array.from(clean); const lastBase = plainBase(chars[chars.length - 1] || '');
+      const shapes = { a:'â', e:'ê', o:'ô', d:'đ' };
+      if (lastBase === lowerKey && shapes[lowerKey]) {
+        const source = chars[chars.length - 1];
+        chars.splice(-1, 1, caseChar(source, shapes[lowerKey]));
+        return applyTone(chars.join(''), oldTone);
+      }
+    }
+
+    return applyTone(clean + key, oldTone);
+  }
+
+  if (typeof window !== 'undefined') window.telex = telex;
 
   function insertComposerText(text, useTelex = true) {
     const start = messageInput.selectionStart ?? messageInput.value.length;
@@ -216,8 +324,17 @@
       if (keyboardCapsLock || keyboardShift || !prefix.trim() || /[.!?]\s*$|\n\s*$/.test(prefix)) value = value.toUpperCase();
       if (keyboardShift && !keyboardCapsLock) { keyboardShift = false; updateKeyboardCase(); }
     }
-    replaceComposerRange(start, end, value);
-    if (useTelex && keyboardTelex && letter) convertTelexAtCaret();
+    if (useTelex && keyboardTelex && letter && start === end) {
+      const prefix = messageInput.value.slice(0, start);
+      const match = prefix.match(/[\p{Script=Latin}]+$/u);
+      if (match) {
+        const wordStart = start - match[0].length;
+        if (!previousGraphemeIsEmoji(prefix, wordStart)) {
+          const transformed = telex(match[0], value);
+          replaceComposerRange(wordStart, start, transformed);
+        } else replaceComposerRange(start, end, value);
+      } else replaceComposerRange(start, end, value);
+    } else replaceComposerRange(start, end, value);
     emitComposerInput('insertText', value);
   }
 
@@ -295,6 +412,8 @@
     if (customKeyboardLetters) customKeyboardLetters.style.display = tab === 'letters' ? '' : 'none';
     if (customKeyboardSymbols) customKeyboardSymbols.hidden = tab !== 'symbols';
     if (customKeyboardEmojiPicker) customKeyboardEmojiPicker.hidden = tab !== 'emoji';
+    const symbolsButton = customKeyboard.querySelector('.kb-bottom-row [data-kb-key="symbols"]');
+    if (symbolsButton) symbolsButton.textContent = tab === 'symbols' ? 'ABC' : '123';
     if (tab === 'emoji') renderKeyboardEmoji();
   }
 
@@ -309,6 +428,16 @@
     }
     if (key === 'backspace') { eraseComposerCharacter(); return; }
     if (key === 'symbols') { setKeyboardTab(keyboardTab === 'symbols' ? 'letters' : 'symbols'); return; }
+    if (key === 'moreSymbols') {
+      alternateSymbols = !alternateSymbols;
+      const symbolRows = customKeyboardSymbols?.querySelectorAll('.kb-key-row');
+      const row = symbolRows?.[1];
+      const values = alternateSymbols ? ['\\','[',']','{','}','%','^','*','+','='] : ['-','/',':',';','(',')','₫','&','@','"'];
+      row?.querySelectorAll('[data-kb-key]').forEach((button, index) => {
+        button.dataset.kbKey = values[index]; button.textContent = values[index];
+      });
+      return;
+    }
     if (key === 'letters') { setKeyboardTab('letters'); return; }
     if (key === 'emoji') {
       if (keyboardTab === 'emoji') setKeyboardTab(keyboardPreviousTab);
@@ -332,6 +461,9 @@
       const value = button.dataset.kbKey;
       if (/^[a-z]$/.test(value)) button.textContent = (keyboardShift || keyboardCapsLock) ? value.toUpperCase() : value;
     });
+    const shiftKey = customKeyboard.querySelector('[data-kb-key="shift"]');
+    shiftKey?.classList.toggle('shift-on', keyboardShift || keyboardCapsLock);
+    shiftKey?.classList.toggle('caps-lock', keyboardCapsLock);
   }
 
   function clearDeleteRepeat() {
@@ -381,6 +513,17 @@
     keyButton.classList.add('pressed');
     try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
     const key = keyButton.dataset.kbKey;
+    if (key === 'emoji') {
+      pendingEmojiKey = keyButton;
+      emojiHoldFired = false;
+      clearTimeout(emojiHoldTimer);
+      emojiHoldTimer = setTimeout(() => {
+        emojiHoldFired = true;
+        pendingEmojiKey = null;
+        useNativeKeyboard();
+      }, 500);
+      return;
+    }
     if (key === 'backspace') startDeleteRepeat();
     else handleKeyboardKey(key);
     showKeyboardPopover(keyButton);
@@ -393,6 +536,11 @@
     if (keyButton) handleKeyboardKey(keyButton.dataset.kbKey);
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => customKeyboard.addEventListener(type, (event) => {
+    if (pendingEmojiKey) {
+      clearTimeout(emojiHoldTimer);
+      if (type === 'pointerup' && !emojiHoldFired) handleKeyboardKey('emoji');
+      pendingEmojiKey = null;
+    }
     const pressed = customKeyboard.querySelector('.pressed');
     pressed?.classList.remove('pressed');
     customKeyboardPopover?.classList.remove('visible');

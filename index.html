@@ -356,29 +356,34 @@
       touch-action: none;
     }
     .kb-hide { position: absolute; right: 4px; top: -10px; width: 40px; height: 40px; border: 0; background: transparent; color: inherit; font-size: 20px; }
-    .kb-rows { display: flex; flex-direction: column; gap: 5px; padding: 2px 5px 0; height: calc(100% - 18px); box-sizing: border-box; }
+    .kb-rows { display: flex; flex-direction: column; gap: 10px; padding: 2px 5px 0; height: calc(100% - 18px); box-sizing: border-box; }
     .kb-key-row { display: flex; justify-content: center; gap: 6px; flex: 1; min-height: 40px; }
     .kb-key {
-      flex: 1 1 0; min-width: 0; min-height: 40px; border: 0; border-radius: 8px; padding: 6px 3px;
-      background: #fff; color: #33252b; box-shadow: 0 2px 2px rgba(90,35,55,.2);
+      flex: 1 1 0; min-width: 0; min-height: 40px; border: 0; border-radius: 6px; padding: 6px 3px;
+      background: #fff; color: #33252b; box-shadow: 0 1px 0 rgba(0,0,0,.3);
       font: 22px/1 Arial,sans-serif; touch-action: manipulation; user-select: none; -webkit-user-select: none;
       transition: transform 80ms ease, background-color 80ms ease;
     }
     .kb-key:active, .kb-key.pressed { transform: scale(.92); background: #f8bbd0; }
     .kb-key.function { background: #f8bbd0; font-size: 15px; }
     .kb-key.enter { background: #e91e63; color: #fff; font-size: 17px; }
-    .kb-key.wide, .kb-letters .kb-key.function { flex: 1.5 1 0; }
-    .kb-key.space { flex: 1 1 0; }
-    .kb-key.vi { flex: 0 0 46px; font-size: 15px; }
-    .kb-letters { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 5px; }
-    .kb-letters .kb-key-row, .kb-symbols .kb-key-row { flex: 0 0 54px; height: 54px; gap: 6px; }
-    .kb-symbols:not([hidden]) { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 5px; }
-    .kb-bottom-row { flex: 0 0 44px; height: 44px; min-height: 44px; gap: 4px; align-items: center; }
-    .kb-bottom-row .kb-key:not(.space):not(.enter):not(.vi) { flex: 0 0 46px; width: 46px; font-size: 20px; }
-    .kb-bottom-row .kb-key.enter { flex: 0 0 64px; width: 64px; }
-    .kb-bottom-row .kb-key.vi { flex-basis: 46px; width: 46px; }
+    .kb-key.wide, .kb-letters .kb-key.function { flex: 1.4 1 0; }
+    .kb-key.space { flex: 1 1 0; position: relative; }
+    .kb-space-label { position: absolute; width: 48px; height: 100%; top: 0; left: 50%; display: grid; place-items: center; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .72; }
+    .kb-bottom-row .kb-key[data-kb-key="symbols"] { flex: 0 0 44px; font-size: 15px; }
+    .kb-bottom-row .kb-key[data-kb-key="emoji"] { flex: 0 0 44px; font-size: 20px; }
+    .kb-bottom-row .kb-key.enter { flex: 0 0 80px; }
     .kb-bottom-row .kb-key.space { min-width: 36px; }
-    .kb-bottom-row .kb-key[data-kb-key="symbols"] { font-size: 15px; }
+    .kb-letters { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 10px; }
+    .kb-letters .kb-key-row, .kb-symbols .kb-key-row { flex: 0 0 46px; height: 46px; gap: 6px; }
+    .kb-letters .kb-key-row:nth-child(2) .kb-key { flex: 0 0 calc((100% - 54px) / 10); }
+    .kb-letters .kb-key-row:nth-child(3) { gap: 6px; }
+    .kb-letters .kb-key-row:nth-child(3) .kb-key.function:first-child { margin-right: 6px; }
+    .kb-letters .kb-key-row:nth-child(3) .kb-key.function:last-child { margin-left: 6px; }
+    .kb-key.function.shift-on { background: #fff; color: #33252b; font-size: 19px; }
+    .kb-key.function.caps-lock { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+    .kb-symbols:not([hidden]) { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 10px; }
+    .kb-bottom-row { flex: 0 0 46px; height: 46px; min-height: 46px; gap: 6px; align-items: center; }
     .kb-emoji-picker { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 3px; }
     #kb.emoji-mode .kb-letters, #kb.emoji-mode .kb-symbols, #kb.emoji-mode .kb-bottom-row { display: none; }
     #kb.emoji-mode .kb-emoji-picker { display: flex; }
@@ -394,7 +399,8 @@
     @media (prefers-color-scheme: dark) {
       #kb { background: #3a1d2a; color: #fff; }
       .kb-key, .kb-emoji { background: #5a2d40; color: #fff; box-shadow: 0 2px 2px rgba(0,0,0,.3); }
-      .kb-key.function { background: #704057; }
+      .kb-key.function { background: #3a1d2a; }
+      .kb-key.function.shift-on { background: #5a2d40; color: #fff; }
       .kb-key:active, .kb-key.pressed { background: #8b4965; }
       .kb-key.enter { background: #e91e63; }
       .kb-emoji-tabs button { background: #704057; color: #fff; }
@@ -405,9 +411,9 @@
     }
     @media (max-width: 360px) {
       .kb-rows { padding-left: 4px; padding-right: 4px; }
-      .kb-bottom-row { gap: 3px; }
-      .kb-bottom-row .kb-key:not(.space):not(.enter):not(.vi), .kb-bottom-row .kb-key.vi { flex-basis: 40px; width: 40px; }
-      .kb-bottom-row .kb-key.enter { flex-basis: 58px; width: 58px; }
+      .kb-bottom-row { gap: 4px; }
+      .kb-bottom-row .kb-key[data-kb-key="symbols"], .kb-bottom-row .kb-key[data-kb-key="emoji"] { flex-basis: 40px; }
+      .kb-bottom-row .kb-key.enter { flex-basis: 68px; }
       .kb-bottom-row .kb-key.space { min-width: 24px; }
     }
 
@@ -1340,7 +1346,7 @@
         <div class="kb-symbols" hidden>
           <div class="kb-key-row"><button class="kb-key" data-kb-key="1">1</button><button class="kb-key" data-kb-key="2">2</button><button class="kb-key" data-kb-key="3">3</button><button class="kb-key" data-kb-key="4">4</button><button class="kb-key" data-kb-key="5">5</button><button class="kb-key" data-kb-key="6">6</button><button class="kb-key" data-kb-key="7">7</button><button class="kb-key" data-kb-key="8">8</button><button class="kb-key" data-kb-key="9">9</button><button class="kb-key" data-kb-key="0">0</button></div>
           <div class="kb-key-row"><button class="kb-key" data-kb-key="-">-</button><button class="kb-key" data-kb-key="/">/</button><button class="kb-key" data-kb-key=":">:</button><button class="kb-key" data-kb-key=";">;</button><button class="kb-key" data-kb-key="(">(</button><button class="kb-key" data-kb-key=")">)</button><button class="kb-key" data-kb-key="₫">₫</button><button class="kb-key" data-kb-key="&amp;">&amp;</button><button class="kb-key" data-kb-key="@">@</button><button class="kb-key" data-kb-key="&quot;">&quot;</button></div>
-          <div class="kb-key-row"><button class="kb-key function wide" data-kb-key="symbols">ABC</button><button class="kb-key" data-kb-key=",">,</button><button class="kb-key" data-kb-key=".">.</button><button class="kb-key" data-kb-key="?">?</button><button class="kb-key" data-kb-key="!">!</button><button class="kb-key" data-kb-key="'">'</button></div>
+          <div class="kb-key-row"><button class="kb-key function wide" data-kb-key="moreSymbols">#+=</button><button class="kb-key" data-kb-key=".">.</button><button class="kb-key" data-kb-key=",">,</button><button class="kb-key" data-kb-key="?">?</button><button class="kb-key" data-kb-key="!">!</button><button class="kb-key" data-kb-key="'">'</button><button class="kb-key function" data-kb-key="backspace">⌫</button></div>
         </div>
         <div id="kb-emoji-picker" class="kb-emoji-picker" hidden>
           <div class="kb-emoji-tabs" id="kb-emoji-tabs">
@@ -1348,7 +1354,7 @@
           </div>
           <div id="kb-emoji-grid" class="kb-emoji-grid"></div>
         </div>
-        <div class="kb-key-row kb-bottom-row"><button class="kb-key function wide" data-kb-key="symbols">123</button><button class="kb-key function" data-kb-key="globe">🌐</button><button class="kb-key function" data-kb-key="emoji">😊</button><button class="kb-key space" data-kb-key="space"> </button><button class="kb-key vi" data-kb-key="telex">VI</button><button class="kb-key" data-kb-key=".">.</button><button class="kb-key enter" data-kb-key="newline">↵</button></div>
+        <div class="kb-key-row kb-bottom-row"><button class="kb-key function wide" data-kb-key="symbols">123</button><button class="kb-key function" data-kb-key="emoji">😊</button><button class="kb-key space" data-kb-key="space"><span class="kb-space-label" data-kb-key="telex">VI</span></button><button class="kb-key enter" data-kb-key="newline">↵</button></div>
       </div>
     </section>
   </div>
