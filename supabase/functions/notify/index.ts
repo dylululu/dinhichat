@@ -49,7 +49,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     const senderName = senderProfile?.name || "Tin nhắn mới";
-    const body = record.content || "📷 Đã gửi một ảnh";
+    const body = record.is_sticker ? "🎟️ Đã gửi một sticker" : (record.content || "📷 Đã gửi một ảnh");
 
     const { data: targetProfiles } = await supabase
       .from("profiles")

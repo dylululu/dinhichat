@@ -10,20 +10,21 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, thanh trả lời, vuốt để trả lời, typing-indicator, ảnh, thanh chat responsive.
-- `app.js`: Logic client (initChat, ensurePush, addMsg, startReply, enableSwipeReply, sendMessage, syncMessages, cache).
+- `index.html`: UI chat, sticker tray, thanh trả lời, vuốt, ảnh, thanh chat responsive.
+- `app.js`: Logic client (initChat, ensurePush, addMsg, loadStickers, addStickerFile, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
-- `supabase/functions/notify/index.ts`: Edge Function gửi push tức thì khi có tin nhắn mới.
+- `supabase/functions/notify/index.ts`: Edge Function gửi push tức thì, nội dung riêng cho sticker.
 - `supabase/functions/remind/index.ts`: Edge Function kiểm tra chưa rep và push nhắc nhở (x-cron-secret).
 - `supabase/cron.local.sql`: Script mẫu lệnh `cron.schedule` gọi edge function `remind`.
 - `supabase/migrations/005_read.sql`: Thêm read_at, policy update cho người nhận, trigger bảo vệ tin nhắn.
 - `supabase/migrations/006_reply_to.sql`: Thêm reply_to và bảo vệ cột này khỏi bị sửa.
+- `supabase/migrations/007_stickers.sql`: Thêm is_sticker, bảng stickers và RLS.
 
 ## Database
-- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, reply_to, remind_mode, remind_count, next_remind_at, remind_done, read_at). Bucket: `chat-images`.
-- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`, `006_reply_to.sql`.
+- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, reply_to, is_sticker, remind_mode, remind_count, next_remind_at, remind_done, read_at), `stickers` (id, owner_id, path, created_at). Bucket: `chat-images`.
+- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`, `006_reply_to.sql`, `007_stickers.sql`.
 - Functions deployed: `notify`, `remind`.
 
 ## Đã xong
@@ -41,6 +42,7 @@
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
 - Khung nhập chat nhiều dòng tự giãn; bỏ dòng mô tả nhắc dưới thanh nhập.
 - Vuốt phải tin nhắn để trả lời, trích dẫn tin gốc và tự cuộn tới tin đó.
+- Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 
 ## Đang làm / Dở dang
 - Bạn làm tay: thử bằng `npx serve .`, tự git push, xóa icon iPhone rồi thêm lại.

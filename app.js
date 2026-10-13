@@ -31,6 +31,10 @@
 
   const btnAttach = document.getElementById('btn-attach');
   const attachMenu = document.getElementById('attach-menu');
+  const btnSticker = document.getElementById('btn-sticker');
+  const stickerPanel = document.getElementById('sticker-panel');
+  const stickerGrid = document.getElementById('sticker-grid');
+  const fileSticker = document.getElementById('file-sticker');
   const btnCamera = document.getElementById('btn-camera');
   const btnGallery = document.getElementById('btn-gallery');
   const fileCamera = document.getElementById('file-camera');
@@ -52,6 +56,7 @@
   const signedUrlCache = new Map();
   const profilesMap = new Map();
   const messageCache = new Map();
+  let stickerItems = [];
   let ensurePushPromise = null;
   let activeReply = null;
 
@@ -102,6 +107,7 @@
 
   function replySnippet(message, maxLength = 20) {
     if (!message) return 'Tin nhắn không còn';
+    if (message.is_sticker) return '🎟️ Sticker';
     if (message.image_path && !message.content) return '📷 Ảnh';
     const text = (message.content || (message.image_path ? '📷 Ảnh' : '')).trim();
     return text.length > maxLength ? text.slice(0, maxLength) + '…' : (text || 'Tin nhắn không còn');
@@ -342,6 +348,144 @@
     return data.signedUrl;
   }
 
+  function closeStickerPanel() {
+    stickerPanel.classList.remove('open');
+    stickerPanel.setAttribute('aria-hidden', 'true');
+  }
+
+  async function sendSticker(sticker) {
+    if (!currentUser || !sticker?.path) return false;
+    const remindSelect = document.getElementById('remind-select');
+    const { error } = await supabase.from('messages').insert({
+      sender_id: currentUser.id,
+      image_path: sticker.path,
+      is_sticker: true,
+      content: null,
+      reply_to: activeReply?.id || null,
+      remind_mode: remindSelect ? remindSelect.value : 'none'
+    });
+    if (error) {
+      console.error('Lỗi gửi sticker:', error);
+      alert('Không gửi được sticker: ' + error.message);
+      return false;
+    }
+    if (remindSelect) remindSelect.value = 'none';
+    clearReply();
+    closeStickerPanel();
+    return true;
+  }
+
+  async function renderStickerTray() {
+    stickerGrid.replaceChildren();
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'sticker-item sticker-add';
+    addButton.textContent = '➕ Thêm sticker';
+    addButton.addEventListener('click', () => {
+      fileSticker.value = '';
+      fileSticker.click();
+    });
+    stickerGrid.appendChild(addButton);
+
+    for (const sticker of stickerItems) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'sticker-item';
+      button.setAttribute('aria-label', 'Gửi sticker');
+      const img = document.createElement('img');
+      img.alt = 'sticker';
+      img.loading = 'lazy';
+      getSignedUrl(sticker.path).then((url) => { if (url) img.src = url; });
+
+      let holdTimer = null;
+      let suppressClick = false;
+      const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+      button.addEventListener('pointerdown', () => {
+        if (sticker.owner_id !== currentUser?.id) return;
+        holdTimer = setTimeout(async () => {
+          suppressClick = true;
+          setTimeout(() => { suppressClick = false; }, 1000);
+          if (confirm('Xóa sticker này khỏi khay?')) {
+            const { error } = await supabase.from('stickers').delete()
+              .eq('id', sticker.id).eq('owner_id', currentUser.id);
+            if (error) alert('Không xóa được sticker: ' + error.message);
+            else {
+              stickerItems = stickerItems.filter((item) => item.id !== sticker.id);
+              renderStickerTray();
+            }
+          }
+        }, 650);
+      });
+      button.addEventListener('pointerup', cancelHold);
+      button.addEventListener('pointercancel', cancelHold);
+      button.addEventListener('pointerleave', cancelHold);
+      button.addEventListener('contextmenu', (event) => {
+        if (sticker.owner_id !== currentUser?.id) return;
+        event.preventDefault();
+      });
+      button.addEventListener('click', () => {
+        if (suppressClick) { suppressClick = false; return; }
+        sendSticker(sticker);
+      });
+      button.appendChild(img);
+      stickerGrid.appendChild(button);
+    }
+  }
+
+  async function loadStickers() {
+    const { data, error } = await supabase.from('stickers').select('id, owner_id, path, created_at')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Không tải được sticker:', error);
+      return;
+    }
+    stickerItems = data || [];
+    await renderStickerTray();
+  }
+
+  async function stickerBlobFromFile(file) {
+    if (!file?.type?.startsWith('image/')) throw new Error('Hãy chọn tệp ảnh.');
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Không chuyển được ảnh sang PNG.'));
+    }, 'image/png'));
+  }
+
+  async function addStickerFile(file, sendAfterSave = false) {
+    try {
+      const blob = await stickerBlobFromFile(file);
+      const random = Math.random().toString(36).slice(2, 8);
+      const path = `${currentUser.id}/stickers/${Date.now()}-${random}.png`;
+      const { error: uploadError } = await supabase.storage.from('chat-images').upload(path, blob, {
+        contentType: 'image/png'
+      });
+      if (uploadError) throw uploadError;
+      const { error: insertError } = await supabase.from('stickers').insert({
+        owner_id: currentUser.id,
+        path
+      });
+      if (insertError) throw insertError;
+      const sticker = { owner_id: currentUser.id, path, created_at: new Date().toISOString() };
+      if (sendAfterSave) await sendSticker(sticker);
+      await loadStickers();
+    } catch (error) {
+      console.error('Lỗi thêm sticker:', error);
+      alert('Không thêm được sticker: ' + (error.message || String(error)));
+    }
+  }
+
+  async function handleStickerFiles(files, sendAfterSave = false) {
+    const images = Array.from(files || []).filter((file) => file.type?.startsWith('image/'));
+    for (const image of images) await addStickerFile(image, sendAfterSave);
+  }
+
   // ─── Save messages to cache ──────────────────────────────────────────────────
   function saveMsgsToCache() {
     // Collect up to 100 rendered message IDs (in order)
@@ -508,7 +652,20 @@
 
     const replyQuote = message.reply_to ? createReplyQuote(message.reply_to) : null;
 
-    if (message.image_path) {
+    if (message.is_sticker) {
+      row.classList.add('sticker-message');
+      if (replyQuote) row.appendChild(replyQuote);
+      const name = document.createElement('div');
+      name.className = 'sticker-sender';
+      name.textContent = senderName(message);
+      row.appendChild(name);
+      const img = document.createElement('img');
+      img.className = 'msg-sticker';
+      img.loading = 'lazy';
+      img.alt = 'sticker';
+      getSignedUrl(message.image_path).then((url) => { if (url) img.src = url; });
+      row.appendChild(img);
+    } else if (message.image_path) {
       const wrap = document.createElement('div');
       wrap.className = 'msg-image-wrap';
       if (replyQuote) wrap.appendChild(replyQuote);
@@ -731,6 +888,27 @@
     btnAttach.addEventListener('click', (e) => { e.stopPropagation(); attachMenu.classList.toggle('open'); });
     document.addEventListener('click', () => attachMenu.classList.remove('open'));
     attachMenu.addEventListener('click', (e) => e.stopPropagation());
+  }
+  if (btnSticker && stickerPanel && stickerGrid && fileSticker) {
+    btnSticker.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (attachMenu) attachMenu.classList.remove('open');
+      const open = !stickerPanel.classList.contains('open');
+      stickerPanel.classList.toggle('open', open);
+      stickerPanel.setAttribute('aria-hidden', String(!open));
+      if (open) await loadStickers();
+    });
+    stickerPanel.addEventListener('click', (event) => event.stopPropagation());
+    document.addEventListener('click', (event) => {
+      if (!stickerPanel.contains(event.target) && event.target !== btnSticker) closeStickerPanel();
+    });
+    fileSticker.addEventListener('change', () => handleStickerFiles(fileSticker.files));
+    messageInput.addEventListener('paste', (event) => {
+      const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type?.startsWith('image/'));
+      if (!files.length) return;
+      event.preventDefault();
+      if (confirm('Lưu làm sticker và gửi?')) handleStickerFiles(files, true);
+    });
   }
   if (btnCamera && fileCamera) {
     btnCamera.addEventListener('click', () => { if (attachMenu) attachMenu.classList.remove('open'); fileCamera.value = ''; fileCamera.click(); });
