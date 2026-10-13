@@ -98,6 +98,10 @@
   let langPointerDown = null;
   let lastLangToggleAt = 0;
   let langToastTimer = null;
+  let keyboardKeyCoordinates = new Map();
+  let keyboardKeyPositions = new Map();
+  let keyboardCoordinateFrame = null;
+  let composerInputFramePending = false;
 
   function renderKeyboardLanguage() {
     const languageKey = customKeyboard.querySelector('[data-kb-key="language"]');
@@ -150,6 +154,7 @@
     pinkKeyboardOpen = true;
     const keyboardHeight = customKeyboard.getBoundingClientRect().height;
     document.documentElement.style.setProperty('--cover-shift', `${-Math.round(keyboardHeight * .35)}px`);
+    scheduleKeyboardCoordinateCache();
     scrollMessagesAfterKeyboard(messagesNearBottom);
   }
 
@@ -202,18 +207,6 @@
   };
   const toneBase = {};
   Object.entries(toneFamilies).forEach(([base, forms]) => forms.forEach((form) => { toneBase[form] = base; toneBase[form.toUpperCase()] = base.toUpperCase(); }));
-
-  function previousGraphemeIsEmoji(value, end) {
-    const prefix = value.slice(0, end);
-    if (!prefix) return false;
-    let previous = Array.from(prefix).pop() || '';
-    try {
-      const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(prefix)];
-      previous = segments[segments.length - 1]?.segment || previous;
-    } catch {}
-    const emojiPattern = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:[\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]+)?$/u;
-    return emojiPattern.test(previous) || emojiPattern.test(prefix);
-  }
 
   const toneKeys = { s: 1, f: 2, r: 3, x: 4, j: 5 };
   const vowelBases = new Set(['a','ă','â','e','ê','i','o','ô','ơ','u','ư','y']);
@@ -300,25 +293,14 @@
     if (lowerKey === 'w') {
       const chars = Array.from(clean);
       const bases = chars.map(plainBase);
-      // Retyping w reverses the just-applied shape and leaves a literal w.
-      if (chars.length && ['ă','ơ','ư'].includes(bases[bases.length - 1])) {
-        const last = bases.length - 1;
-        const undo = { 'ă':'a', 'ơ':'o', 'ư':'u' }[bases[last]];
-        if (last > 0 && ['ư','u'].includes(bases[last - 1]) && ['ơ','o'].includes(bases[last])) {
-          chars[last - 1] = caseChar(chars[last - 1], 'u');
-          chars[last] = caseChar(chars[last], 'o');
-          return applyTone(chars.join('') + key, oldTone);
-        }
-        chars[last] = caseChar(chars[last], undo);
-        return applyTone(chars.join('') + key, oldTone);
-      }
-      // w changes a contiguous uo/ưo cluster together, except qu.
+      // w shapes a contiguous uo/ưo cluster anywhere in the word, before or after final consonants.
       for (let i = bases.length - 1; i > 0; i--) {
         if (['u','ư'].includes(bases[i - 1]) && ['o','ơ'].includes(bases[i]) && !(i - 1 > 0 && bases[i - 2] === 'q')) {
-          // “thuở” keeps the u plain; w shapes only its final o.
-          if (bases.slice(0, i - 1).join('') === 'th') {
-            chars[i] = caseChar(chars[i], 'ơ');
-            return applyTone(chars.join(''), oldTone);
+          // Retyping w on ươ restores uo and leaves a literal w.
+          if (bases[i - 1] === 'ư' && bases[i] === 'ơ') {
+            chars[i - 1] = caseChar(chars[i - 1], 'u');
+            chars[i] = caseChar(chars[i], 'o');
+            return applyTone(chars.join('') + key, oldTone);
           }
           chars[i - 1] = caseChar(chars[i - 1], 'ư');
           chars[i] = caseChar(chars[i], 'ơ');
@@ -362,22 +344,21 @@
   function insertComposerText(text, useTelex = true) {
     const start = messageInput.selectionStart ?? messageInput.value.length;
     const end = messageInput.selectionEnd ?? start;
+    const currentValue = messageInput.value;
     let value = text;
     const letter = /^[a-z]$/i.test(value);
     if (letter) {
-      const prefix = messageInput.value.slice(0, start);
+      const prefix = currentValue.slice(Math.max(0, start - 20), start);
       if (keyboardCapsLock || keyboardShift || !prefix.trim() || /[.!?]\s*$|\n\s*$/.test(prefix)) value = value.toUpperCase();
       if (keyboardShift && !keyboardCapsLock) { keyboardShift = false; updateKeyboardCase(); }
     }
     if (useTelex && kbLang === 'vi' && letter && start === end) {
-      const prefix = messageInput.value.slice(0, start);
+      const prefix = currentValue.slice(Math.max(0, start - 20), start);
       const match = prefix.match(/[\p{Script=Latin}]+$/u);
       if (match) {
-        const wordStart = start - match[0].length;
-        if (!previousGraphemeIsEmoji(prefix, wordStart)) {
-          const transformed = telex(match[0], value);
-          replaceComposerRange(wordStart, start, transformed);
-        } else replaceComposerRange(start, end, value);
+        const wordStart = Math.max(0, start - 20) + prefix.length - match[0].length;
+        const transformed = telex(match[0], value);
+        replaceComposerRange(wordStart, start, transformed);
       } else replaceComposerRange(start, end, value);
     } else replaceComposerRange(start, end, value);
     emitComposerInput('insertText', value);
@@ -460,10 +441,10 @@
     const symbolsButton = customKeyboard.querySelector('.kb-bottom-row [data-kb-key="symbols"]');
     if (symbolsButton) symbolsButton.textContent = tab === 'symbols' ? 'ABC' : '123';
     if (tab === 'emoji') renderKeyboardEmoji();
+    scheduleKeyboardCoordinateCache();
   }
 
   function handleKeyboardKey(key) {
-    try { navigator.vibrate?.(5); } catch {}
     if (key === 'shift') {
       if (keyboardCapsLock) { keyboardCapsLock = false; keyboardShift = false; }
       else if (keyboardShift) { keyboardCapsLock = true; keyboardShift = false; }
@@ -523,22 +504,57 @@
     }, 400);
   }
 
+  function cacheKeyboardKeyCoordinates() {
+    if (!customKeyboard) return;
+    const keyboardRect = customKeyboard.getBoundingClientRect();
+    const nextCoordinates = new Map();
+    const nextPositions = new Map();
+    customKeyboard.querySelectorAll('.kb-key-row').forEach((row) => {
+      const keys = [];
+      row.querySelectorAll('[data-kb-key]').forEach((button) => {
+        const rect = button.getBoundingClientRect();
+        const position = {
+          button,
+          centerX: rect.left + rect.width / 2,
+          popoverLeft: rect.left + rect.width / 2 - keyboardRect.left,
+          popoverTop: Math.max(8, rect.top - keyboardRect.top - 56)
+        };
+        keys.push(position);
+        nextPositions.set(button, position);
+      });
+      nextCoordinates.set(row, keys);
+    });
+    keyboardKeyCoordinates = nextCoordinates;
+    keyboardKeyPositions = nextPositions;
+  }
+
+  function scheduleKeyboardCoordinateCache() {
+    if (keyboardCoordinateFrame !== null) cancelAnimationFrame(keyboardCoordinateFrame);
+    keyboardCoordinateFrame = requestAnimationFrame(() => {
+      keyboardCoordinateFrame = null;
+      cacheKeyboardKeyCoordinates();
+    });
+  }
+
   function nearestKeyboardKey(row, clientX) {
-    const keys = [...row.querySelectorAll('[data-kb-key]')];
+    const keys = keyboardKeyCoordinates.get(row) || [];
     if (!keys.length) return null;
-    return keys.reduce((nearest, candidate) => {
-      const rect = candidate.getBoundingClientRect();
-      return Math.abs(clientX - (rect.left + rect.width / 2)) < Math.abs(clientX - (nearest.getBoundingClientRect().left + nearest.getBoundingClientRect().width / 2)) ? candidate : nearest;
-    }, keys[0]);
+    let nearest = keys[0];
+    let distance = Math.abs(clientX - nearest.centerX);
+    for (let i = 1; i < keys.length; i++) {
+      const nextDistance = Math.abs(clientX - keys[i].centerX);
+      if (nextDistance < distance) { nearest = keys[i]; distance = nextDistance; }
+    }
+    return nearest.button;
   }
 
   function showKeyboardPopover(keyButton) {
     if (!customKeyboardPopover || !/^[a-z]$/i.test(keyButton.dataset.kbKey || '')) return;
-    const keyRect = keyButton.getBoundingClientRect();
-    const kbRect = customKeyboard.getBoundingClientRect();
+    const position = keyboardKeyPositions.get(keyButton);
+    if (!position) return;
     customKeyboardPopover.textContent = keyButton.textContent.trim();
-    customKeyboardPopover.style.left = `${keyRect.left + keyRect.width / 2 - kbRect.left}px`;
-    customKeyboardPopover.style.top = `${Math.max(8, keyRect.top - kbRect.top - 56)}px`;
+    customKeyboardPopover.style.setProperty('--kb-pop-x', `${position.popoverLeft}px`);
+    customKeyboardPopover.style.setProperty('--kb-pop-y', `${position.popoverTop}px`);
     customKeyboardPopover.classList.add('visible');
   }
 
@@ -553,7 +569,6 @@
     if (!keyButton) return;
     try { keyButton.setPointerCapture(event.pointerId); } catch {}
     keyButton.classList.add('pressed');
-    try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
     const key = keyButton.dataset.kbKey;
     if (key === 'emoji') {
       pendingEmojiKey = keyButton;
@@ -576,11 +591,6 @@
   }
 
   customKeyboard.addEventListener('pointerdown', handleKeyboardPointerDown);
-  customKeyboard.addEventListener('click', (event) => {
-    if (event.detail !== 0) return;
-    const keyButton = event.target.closest?.('[data-kb-key]');
-    if (keyButton && keyButton.dataset.kbKey !== 'language') handleKeyboardKey(keyButton.dataset.kbKey);
-  });
   customKeyboard.addEventListener('pointermove', (event) => {
     if (!langPointerDown || event.pointerId !== langPointerDown.pointerId) return;
     if (Math.hypot(event.clientX - langPointerDown.x, event.clientY - langPointerDown.y) > 10) langPointerDown.moved = true;
@@ -2663,7 +2673,10 @@
     if (coverCropOverlay?.classList.contains('open')) layoutCoverCrop();
   };
   window.addEventListener('resize', relayoutCropOnViewportChange);
+  window.addEventListener('resize', scheduleKeyboardCoordinateCache);
+  window.addEventListener('orientationchange', scheduleKeyboardCoordinateCache);
   window.visualViewport?.addEventListener('resize', relayoutCropOnViewportChange);
+  window.visualViewport?.addEventListener('resize', scheduleKeyboardCoordinateCache);
   let sendTouchStarted = false;
   let ignoreSendClick = false;
   btnSend.addEventListener('pointerdown', (event) => event.preventDefault());
@@ -2687,7 +2700,16 @@
   });
   if (newMessagesButton) newMessagesButton.addEventListener('click', scrollMessagesToBottom);
   replyCancel.addEventListener('click', clearReply);
-  messageInput.addEventListener('input', () => { resizeMessageInput(); updateSendButtonVisibility(); sendTyping(); });
+  messageInput.addEventListener('input', () => {
+    if (composerInputFramePending) return;
+    composerInputFramePending = true;
+    requestAnimationFrame(() => {
+      composerInputFramePending = false;
+      resizeMessageInput();
+      updateSendButtonVisibility();
+      sendTyping();
+    });
+  });
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     else if (e.key === 'Enter' && e.shiftKey) followMessagesAfterResize(messagesNearBottom);
