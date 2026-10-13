@@ -180,8 +180,12 @@
     }
     pwaInstallBanner.style.display = 'none';
     if (Notification.permission === 'granted') {
-      btnNotify.style.display = 'inline-flex';
-      if (await ensurePush()) btnNotify.style.display = 'none';
+      const subscribed = await ensurePush();
+      btnNotify.style.display = subscribed ? 'none' : 'inline-flex';
+      btnNotify.onclick = async () => {
+        const restored = await ensurePush();
+        btnNotify.style.display = restored ? 'none' : 'inline-flex';
+      };
     } else if (Notification.permission === 'denied') {
       btnNotify.style.display = 'none';
     } else {
