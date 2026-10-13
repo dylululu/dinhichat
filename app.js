@@ -43,7 +43,10 @@
   const customKeyboard = document.getElementById('kb');
   const customKeyboardToggle = document.getElementById('kb-toggle');
   const customKeyboardHide = document.getElementById('kb-hide');
-  const customKeyboardEmojiRow = document.getElementById('kb-emoji-row');
+  const customKeyboardEmojiPicker = document.getElementById('kb-emoji-picker');
+  const customKeyboardEmojiGrid = document.getElementById('kb-emoji-grid');
+  const customKeyboardEmojiTabs = document.getElementById('kb-emoji-tabs');
+  const customKeyboardPopover = document.getElementById('kb-popover');
   const customKeyboardSymbols = document.querySelector('.kb-symbols');
   const customKeyboardLetters = document.querySelector('.kb-letters');
   const btnSend = document.getElementById('btn-send');
@@ -78,6 +81,7 @@
   let nativeKeyboardMode = false;
   let keyboardTab = 'letters';
   let keyboardPreviousTab = 'letters';
+  let keyboardEmojiCategory = 'recent';
   let keyboardShift = false;
   let keyboardCapsLock = false;
   let keyboardTelex = true;
@@ -151,12 +155,25 @@
   const toneBase = {};
   Object.entries(toneFamilies).forEach(([base, forms]) => forms.forEach((form) => { toneBase[form] = base; toneBase[form.toUpperCase()] = base.toUpperCase(); }));
 
+  function previousGraphemeIsEmoji(value, end) {
+    const prefix = value.slice(0, end);
+    if (!prefix) return false;
+    let previous = Array.from(prefix).pop() || '';
+    try {
+      const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(prefix)];
+      previous = segments[segments.length - 1]?.segment || previous;
+    } catch {}
+    const emojiPattern = /[\u{1F000}-\u{1FAFF}\u2600-\u27BF](?:[\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}]+)?$/u;
+    return emojiPattern.test(previous) || emojiPattern.test(prefix);
+  }
+
   function convertTelexAtCaret() {
     const caret = messageInput.selectionStart;
     const prefix = messageInput.value.slice(0, caret);
     const tokenMatch = prefix.match(/[\p{L}\p{M}]+$/u);
     if (!tokenMatch) return;
     const start = caret - tokenMatch[0].length;
+    if (previousGraphemeIsEmoji(prefix, start)) return;
     let word = tokenMatch[0];
     const lower = word.toLowerCase();
     const pair = Object.keys(telexPairs).find((candidate) => lower.endsWith(candidate));
@@ -214,22 +231,62 @@
         const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(messageInput.value.slice(0, start))];
         previous = segments.length ? segments[segments.length - 1].index : previous;
       } catch {
-        if (start > 1 && /[\uDC00-\uDFFF]/.test(messageInput.value[start - 1])) previous--;
+        const points = Array.from(messageInput.value.slice(0, start));
+        const cluster = [points.pop() || ''];
+        let rightmost = cluster[0];
+        while (points.length) {
+          const prior = points[points.length - 1];
+          const needsJoin = /[\uFE0E\uFE0F\u200D\u{1F3FB}-\u{1F3FF}\u0300-\u036F]/u.test(rightmost) || rightmost === '\u200d' || prior === '\u200d';
+          if (!needsJoin) break;
+          rightmost = points.pop();
+          cluster.unshift(rightmost);
+        }
+        previous = start - cluster.join('').length;
       }
       replaceComposerRange(previous, start, '');
     } else return;
     emitComposerInput('deleteContentBackward');
   }
 
+  const recentEmojiStorageKey = 'dinhichat_recent_emojis_v1';
+  const keyboardEmojiCategories = {
+    heart: '❤️ 💕 💗 💖 💘 💝 💞 💓 💟 ❣️ 😘 🥰 😍 😚 😙 😗 😻 💋 💌 🫶 🤍 🩷',
+    face: '😂 🥺 😴 😊 😅 🙈 🤗 😉 😭 😁 😃 😄 😆 🤣 🥹 🙂 🙃 🥲 😌 😔 😢 😳 😮 😱 😍 🥰 😘 😗 😙 😚 😋 😛 😝 😜 🤪 😎 🤓 🧐 🤔 🫢 🫣 🫡 😶 😐 😑 😬 🙄 😏',
+    hand: '👍 👎 👌 🤌 🤏 ✌️ 🤞 🫰 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ ✋ 🖐️ 🖖 👋 🤚 🫱 🫲 🫳 🫴',
+    other: '🌙 ✨ 🌟 ⭐️ 💫 ☀️ 🌈 🌸 🌷 🌹 🦋 🎀 🐰 🐱 🐻 🐼 🍓 🍰 ☕️ 💤 🎉 🎊 🎁 🧸 💐'
+  };
+
+  function recentEmojis() {
+    try { return JSON.parse(localStorage.getItem(recentEmojiStorageKey) || '[]').filter((value) => typeof value === 'string').slice(0, 12); }
+    catch { return []; }
+  }
+
   function renderKeyboardEmoji() {
-    if (!customKeyboardEmojiRow || customKeyboardEmojiRow.childElementCount) return;
-    const emojis = '❤️ 💕 💗 😘 🥰 😍 😂 🥺 😴 🌙 😊 😭 🙈 💖 💞 😚 🤗 😋 😎 🥹 🤍 ✨ 🌸 🌷 🎀 🫶 😁 😅 🙂 🙃 😔 😢 🤔 😮 😳 😌 🥱 😇 😏 😜 😝 😤 😡 💌 💋 💐 🌹 🦋 🐰 🐱 🐻 🐼 🍓 🍰 ☕️ 🥺‍🩹 🤝 👍 👏 🙏 💤';
-    emojis.split(' ').forEach((emoji) => {
+    if (!customKeyboardEmojiGrid) return;
+    customKeyboardEmojiGrid.replaceChildren();
+    let emojis = keyboardEmojiCategory === 'recent' ? recentEmojis() : (keyboardEmojiCategories[keyboardEmojiCategory] || '').split(' ');
+    if (!emojis.length) emojis = ['❤️','💕','💗','💖','💘','😘','🥰','😍','😂','🥺','😴','🌙'];
+    emojis.forEach((emoji) => {
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'kb-emoji'; button.textContent = emoji;
       button.dataset.kbKey = 'emoji:' + emoji;
-      customKeyboardEmojiRow.appendChild(button);
+      customKeyboardEmojiGrid.appendChild(button);
     });
+    customKeyboardEmojiTabs?.querySelectorAll('[data-emoji-category]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.emojiCategory === keyboardEmojiCategory);
+    });
+  }
+
+  function insertEmoji(emoji) {
+    const start = messageInput.selectionStart ?? messageInput.value.length;
+    const end = messageInput.selectionEnd ?? start;
+    messageInput.setRangeText(emoji, start, end, 'end');
+    messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+    try {
+      const recent = [emoji, ...recentEmojis().filter((item) => item !== emoji)].slice(0, 12);
+      localStorage.setItem(recentEmojiStorageKey, JSON.stringify(recent));
+    } catch {}
+    if (keyboardEmojiCategory === 'recent') renderKeyboardEmoji();
   }
 
   function setKeyboardTab(tab) {
@@ -237,6 +294,7 @@
     customKeyboard.classList.toggle('emoji-mode', tab === 'emoji');
     if (customKeyboardLetters) customKeyboardLetters.style.display = tab === 'letters' ? '' : 'none';
     if (customKeyboardSymbols) customKeyboardSymbols.hidden = tab !== 'symbols';
+    if (customKeyboardEmojiPicker) customKeyboardEmojiPicker.hidden = tab !== 'emoji';
     if (tab === 'emoji') renderKeyboardEmoji();
   }
 
@@ -251,6 +309,7 @@
     }
     if (key === 'backspace') { eraseComposerCharacter(); return; }
     if (key === 'symbols') { setKeyboardTab(keyboardTab === 'symbols' ? 'letters' : 'symbols'); return; }
+    if (key === 'letters') { setKeyboardTab('letters'); return; }
     if (key === 'emoji') {
       if (keyboardTab === 'emoji') setKeyboardTab(keyboardPreviousTab);
       else { keyboardPreviousTab = keyboardTab; setKeyboardTab('emoji'); }
@@ -264,7 +323,7 @@
     }
     if (key === 'newline') { insertComposerText('\n', false); return; }
     if (key === 'space') { insertComposerText(' ', false); return; }
-    if (key.startsWith('emoji:')) { insertComposerText(key.slice(6), false); return; }
+    if (key.startsWith('emoji:')) { insertEmoji(key.slice(6)); return; }
     insertComposerText(key, keyboardTab === 'letters');
   }
 
@@ -291,23 +350,61 @@
     }, 400);
   }
 
-  document.querySelectorAll('#kb [data-kb-key]').forEach((keyButton) => {
-    keyButton.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      try { keyButton.setPointerCapture(event.pointerId); } catch {}
-      keyButton.classList.add('pressed');
-      try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
-      const key = keyButton.dataset.kbKey;
-      if (key === 'backspace') startDeleteRepeat();
-      else handleKeyboardKey(key);
-    });
-    keyButton.addEventListener('click', (event) => {
-      if (event.detail === 0) handleKeyboardKey(keyButton.dataset.kbKey);
-    });
-    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => keyButton.addEventListener(type, () => {
-      keyButton.classList.remove('pressed');
-      if (keyButton.dataset.kbKey === 'backspace') clearDeleteRepeat();
-    }));
+  function nearestKeyboardKey(row, clientX) {
+    const keys = [...row.querySelectorAll('[data-kb-key]')];
+    if (!keys.length) return null;
+    return keys.reduce((nearest, candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      return Math.abs(clientX - (rect.left + rect.width / 2)) < Math.abs(clientX - (nearest.getBoundingClientRect().left + nearest.getBoundingClientRect().width / 2)) ? candidate : nearest;
+    }, keys[0]);
+  }
+
+  function showKeyboardPopover(keyButton) {
+    if (!customKeyboardPopover || !/^[a-z]$/i.test(keyButton.dataset.kbKey || '')) return;
+    const keyRect = keyButton.getBoundingClientRect();
+    const kbRect = customKeyboard.getBoundingClientRect();
+    customKeyboardPopover.textContent = keyButton.textContent.trim();
+    customKeyboardPopover.style.left = `${keyRect.left + keyRect.width / 2 - kbRect.left}px`;
+    customKeyboardPopover.style.top = `${Math.max(8, keyRect.top - kbRect.top - 56)}px`;
+    customKeyboardPopover.classList.add('visible');
+  }
+
+  function handleKeyboardPointerDown(event) {
+    let keyButton = event.target.closest?.('[data-kb-key]');
+    if (!keyButton) {
+      const row = event.target.closest?.('.kb-key-row');
+      if (row) keyButton = nearestKeyboardKey(row, event.clientX);
+    }
+    if (!keyButton) return;
+    event.preventDefault();
+    try { keyButton.setPointerCapture(event.pointerId); } catch {}
+    keyButton.classList.add('pressed');
+    try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
+    const key = keyButton.dataset.kbKey;
+    if (key === 'backspace') startDeleteRepeat();
+    else handleKeyboardKey(key);
+    showKeyboardPopover(keyButton);
+  }
+
+  customKeyboard.addEventListener('pointerdown', handleKeyboardPointerDown);
+  customKeyboard.addEventListener('click', (event) => {
+    if (event.detail !== 0) return;
+    const keyButton = event.target.closest?.('[data-kb-key]');
+    if (keyButton) handleKeyboardKey(keyButton.dataset.kbKey);
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => customKeyboard.addEventListener(type, (event) => {
+    const pressed = customKeyboard.querySelector('.pressed');
+    pressed?.classList.remove('pressed');
+    customKeyboardPopover?.classList.remove('visible');
+    if (pressed?.dataset.kbKey === 'backspace') clearDeleteRepeat();
+  }));
+
+  customKeyboardEmojiTabs?.addEventListener('pointerdown', (event) => {
+    const button = event.target.closest?.('[data-emoji-category]');
+    if (!button) return;
+    event.preventDefault();
+    keyboardEmojiCategory = button.dataset.emojiCategory;
+    renderKeyboardEmoji();
   });
 
   customKeyboardHide?.addEventListener('pointerdown', (event) => { event.preventDefault(); closePinkKeyboard(); });
