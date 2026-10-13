@@ -365,6 +365,15 @@
       width: 100%;
     }
 
+    .push-note {
+      display: none;
+      flex: 0 0 100%;
+      width: 100%;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 0 4px;
+    }
+
     .chat-input {
       flex: 1;
       min-width: 0;
@@ -569,6 +578,8 @@
         <option value="loop">🔁 Liên tục</option>
       </select>
       <button id="btn-send" class="btn-send">Gửi</button>
+      <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
+      <div id="notification-help" class="push-note"></div>
     </footer>
   </div>
 

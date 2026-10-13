@@ -36,6 +36,8 @@
   const imgOverlay = document.getElementById('img-overlay');
   const imgOverlayImg = document.getElementById('img-overlay-img');
   const typingIndicator = document.getElementById('typing-indicator');
+  const peerPushNotice = document.getElementById('peer-push-notice');
+  const notificationHelp = document.getElementById('notification-help');
 
   let currentUser = null;
   let currentProfile = null;
@@ -46,6 +48,9 @@
   const messageIds = new Set();
   const signedUrlCache = new Map();
   const profilesMap = new Map();
+  let ensurePushPromise = null;
+
+  try { navigator.storage?.persist().catch(() => {}); } catch {}
 
   // Cache keys
   const CACHE_MSGS_KEY = 'dinhichat_msgs_cache';
@@ -65,11 +70,18 @@
     if (cached && Array.isArray(cached)) {
       cached.forEach((p) => profilesMap.set(p.id, p));
     }
-    const { data, error } = await supabase.from('profiles').select('id, name');
+    const { data, error } = await supabase.from('profiles').select('id, name, push_subscription');
     if (!error && data) {
       data.forEach((p) => profilesMap.set(p.id, p));
       lsSet(CACHE_PROFILES_KEY, data);
+      updatePeerPushNotice(data);
     }
+  }
+
+  function updatePeerPushNotice(profiles) {
+    if (!peerPushNotice || !currentUser) return;
+    const peer = profiles.find((profile) => profile.id !== currentUser.id);
+    peerPushNotice.style.display = peer && peer.push_subscription === null ? 'block' : 'none';
   }
 
   const remindSelect = document.getElementById('remind-select');
@@ -88,6 +100,7 @@
     });
     navigator.serviceWorker.addEventListener('message', (e) => {
       if (e.data && e.data.type === 'sync') syncMessages();
+      if (e.data && e.data.type === 'resub') ensurePush();
     });
   }
 
@@ -115,30 +128,48 @@
   }
 
   // ─── Push subscription ───────────────────────────────────────────────────────
-  async function subscribePush() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      alert('Trình duyệt không hỗ trợ Web Push.'); return false;
-    }
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
+  async function ensurePush() {
+    if (navigator.standalone !== true || Notification.permission !== 'granted' || !currentUser) return false;
+    if (ensurePushPromise) return ensurePushPromise;
+    ensurePushPromise = (async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlB64ToUint8Array(window.CONFIG.VAPID_PUBLIC_KEY)
         });
-      }
-      if (currentUser && sub) {
+        if (!sub) {
+          btnNotify.style.display = 'inline-flex';
+          btnNotify.onclick = () => checkNotificationStatus();
+          return false;
+        }
         const { error } = await supabase.from('profiles')
           .update({ push_subscription: sub.toJSON() }).eq('id', currentUser.id);
-        if (error) { console.error('Lỗi lưu subscription:', error); return false; }
+        if (error) {
+          console.error('Lỗi lưu subscription:', error);
+          btnNotify.style.display = 'inline-flex';
+          btnNotify.onclick = () => checkNotificationStatus();
+          return false;
+        }
+        btnNotify.style.display = 'none';
+        return true;
+      } catch (err) {
+        console.error('Lỗi đăng ký push:', err);
+        btnNotify.style.display = 'inline-flex';
+        btnNotify.onclick = () => checkNotificationStatus();
+        return false;
+      } finally {
+        ensurePushPromise = null;
       }
-      return true;
-    } catch (err) { console.error('Lỗi đăng ký push:', err); return false; }
+    })();
+    return ensurePushPromise;
   }
 
   async function checkNotificationStatus() {
     if (!('Notification' in window)) { btnNotify.style.display = 'none'; return; }
+    notificationHelp.style.display = Notification.permission === 'denied' ? 'block' : 'none';
+    notificationHelp.textContent = Notification.permission === 'denied'
+      ? 'Hãy bật thông báo trong Cài đặt → Thông báo → DiNhiChat' : '';
     if (!isStandaloneMode()) {
       btnNotify.style.display = 'inline-flex';
       btnNotify.onclick = () => {
@@ -149,15 +180,21 @@
     }
     pwaInstallBanner.style.display = 'none';
     if (Notification.permission === 'granted') {
-      btnNotify.style.display = 'none'; subscribePush();
+      btnNotify.style.display = 'inline-flex';
+      if (await ensurePush()) btnNotify.style.display = 'none';
+    } else if (Notification.permission === 'denied') {
+      btnNotify.style.display = 'none';
     } else {
       btnNotify.style.display = 'inline-flex';
       btnNotify.onclick = async () => {
         const perm = await Notification.requestPermission();
         if (perm === 'granted') {
-          if (await subscribePush()) btnNotify.style.display = 'none';
+          if (await ensurePush()) btnNotify.style.display = 'none';
+          await checkNotificationStatus();
+        } else if (perm === 'denied') {
+          await checkNotificationStatus();
         } else {
-          alert('Bạn đã từ chối quyền thông báo. Hãy kiểm tra Cài đặt của iPhone.');
+          btnNotify.style.display = 'inline-flex';
         }
       };
     }
@@ -585,12 +622,17 @@
     if (document.visibilityState === 'visible' && currentUser) {
       syncMessages();
       markRead();
+      checkNotificationStatus();
+      ensurePush();
     } else if (document.visibilityState === 'hidden') {
       sendStopTyping();
     }
   });
-  window.addEventListener('pageshow', () => { if (currentUser) { syncMessages(); markRead(); } });
+  window.addEventListener('pageshow', () => { if (currentUser) { syncMessages(); markRead(); checkNotificationStatus(); ensurePush(); } });
   window.addEventListener('focus', () => { if (currentUser) { syncMessages(); markRead(); } });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') ensurePush();
+  }, 30 * 60 * 1000);
 
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
@@ -610,7 +652,8 @@
       await loadFromCacheThenSync();
       subscribeRoom();
       subscribeTyping();
-      checkNotificationStatus();
+      await checkNotificationStatus();
+      ensurePush();
       await markRead();
     } catch (err) {
       console.error('initChat error:', err);
