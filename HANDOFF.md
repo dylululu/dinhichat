@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, ảnh bìa, sticker tray, thanh trả lời, vuốt, ảnh; lỗi bàn phím standalone iOS xử lý bằng --vvh/--vvt và body.kb.
-- `app.js`: Logic client (initChat, ensurePush, fitViewport visualViewport + offsetTop, addMsg, addOptimisticMessage, promoteOptimisticRow, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `index.html`: UI chat, ảnh bìa, sticker tray, thanh trả lời, vuốt, ảnh; viewport 1x, font nhập 16px, layout bàn phím PWA.
+- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, chặn zoom gesture, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -36,13 +36,13 @@
 - Nhắc lại tin nhắn (chế độ none/1/2/loop, hiện icon 🔔/🔁, trigger đặt next_remind_at, cron job định kỳ).
 - Chế độ nhắc áp dụng cho một tin gửi; sau khi gửi thành công tự về “Không nhắc”, không lưu lựa chọn cũ.
 - Khi có tin mới từ cùng người gửi, Edge Function hủy các nhắc còn chờ của tin cũ.
-- Bàn phím PWA standalone iPhone bị che: fitViewport đo --vvh/--vvt, body.kb bỏ safe-bottom, hiệu chỉnh trễ 0/100/300/600ms; giữ focus khi gửi.
+- Chống zoom khi gõ trên iPhone PWA: khóa viewport 1x, font nhập 16px, RAF chỉ cập nhật --vvh/--vvt khi đổi, chặn gesture/double-tap.
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
 - Khung nhập chat nhiều dòng tự giãn; bỏ dòng mô tả nhắc dưới thanh nhập.
-- Vuốt phải tin nhắn để trả lời, trích dẫn tin gốc và tự cuộn tới tin đó.
+- Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa chat dùng chung: lưu Storage, đồng bộ Realtime, cache cục bộ và làm mới signed URL.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.

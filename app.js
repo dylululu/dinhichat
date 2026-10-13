@@ -52,28 +52,42 @@
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
+  let fitViewportFrame = null;
+  let lastViewportHeight = null;
+  let lastViewportTop = null;
+
   function fitViewport() {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    document.documentElement.style.setProperty('--vvh', `${viewport.height}px`);
-    document.documentElement.style.setProperty('--vvt', `${viewport.offsetTop}px`);
-    try { window.scrollTo(0, 0); } catch {}
-    const portrait = window.screen.height > window.screen.width;
-    const keyboardOpen = (window.innerHeight - viewport.height) > 120 ||
-      (portrait && (window.screen.height - viewport.height) > 150);
-    document.body.classList.toggle('kb', keyboardOpen);
-    if (keyboardOpen) {
-      requestAnimationFrame(() => { messagesContainer.scrollTop = messagesContainer.scrollHeight; });
-    }
+    if (fitViewportFrame !== null) window.cancelAnimationFrame(fitViewportFrame);
+    fitViewportFrame = window.requestAnimationFrame(() => {
+      fitViewportFrame = null;
+      const height = Math.round(viewport.height);
+      const top = Math.round(viewport.offsetTop);
+      const rootStyle = document.documentElement.style;
+      if (height !== lastViewportHeight) {
+        rootStyle.setProperty('--vvh', `${height}px`);
+        lastViewportHeight = height;
+      }
+      if (top !== lastViewportTop) {
+        rootStyle.setProperty('--vvt', `${top}px`);
+        lastViewportTop = top;
+      }
+      if (window.pageYOffset !== 0) window.scrollTo(0, 0);
+      const keyboardOpen = window.innerHeight - height > 120;
+      if (document.body.classList.contains('kb') !== keyboardOpen) {
+        document.body.classList.toggle('kb', keyboardOpen);
+      }
+      if (keyboardOpen) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
   }
 
   function scheduleFitViewport() {
-    [0, 100, 300, 600].forEach((delay) => window.setTimeout(fitViewport, delay));
+    [50, 350].forEach((delay) => window.setTimeout(fitViewport, delay));
   }
 
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', fitViewport);
-    window.visualViewport.addEventListener('scroll', fitViewport);
     window.addEventListener('orientationchange', () => window.setTimeout(fitViewport, 300));
     messageInput.addEventListener('focusin', scheduleFitViewport);
     messageInput.addEventListener('focusout', scheduleFitViewport);
@@ -96,6 +110,17 @@
   document.querySelector('.chat-header')?.addEventListener('touchmove', touchMoveGuard, { passive: false });
   document.querySelector('.chat-input-bar')?.addEventListener('touchmove', touchMoveGuard, { passive: false });
 
+  const preventZoomGesture = (event) => event.preventDefault();
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((type) => {
+    document.addEventListener(type, preventZoomGesture, { passive: false });
+  });
+  let lastTouchEndAt = 0;
+  document.addEventListener('touchend', (event) => {
+    const now = Date.now();
+    if (lastTouchEndAt && now - lastTouchEndAt < 300) event.preventDefault();
+    lastTouchEndAt = now;
+  }, { passive: false });
+
   let currentUser = null;
   let currentProfile = null;
   let realtimeChannel = null;
@@ -111,6 +136,7 @@
   let stickerItems = [];
   let ensurePushPromise = null;
   let activeReply = null;
+  let activeReplyRow = null;
   let tempMessageSequence = 0;
   let activeHeartCount = 0;
   let sendGatherRunning = false;
@@ -307,16 +333,49 @@
 
   function clearReply() {
     activeReply = null;
+    activeReplyRow = null;
     replyBar.style.display = 'none';
     replyBarText.textContent = '';
   }
 
-  function startReply(message) {
+  function showReplyPendingNotice() {
+    const notice = document.createElement('div');
+    notice.textContent = 'Tin đang gửi, đợi chút';
+    Object.assign(notice.style, {
+      position: 'fixed', left: '50%', bottom: 'calc(env(safe-area-inset-bottom) + 76px)',
+      transform: 'translateX(-50%)', zIndex: '10000', maxWidth: '90vw',
+      padding: '8px 12px', borderRadius: '18px', background: '#333', color: '#fff',
+      fontSize: '13px', textAlign: 'center', pointerEvents: 'none'
+    });
+    document.body.appendChild(notice);
+    setTimeout(() => notice.remove(), 1800);
+  }
+
+  function startReply(message, row = null) {
     if (!message || !message.id) return;
+    if (String(row?.dataset.id ?? message.id).startsWith('tmp-')) {
+      showReplyPendingNotice();
+      return;
+    }
     activeReply = message;
+    activeReplyRow = row || document.getElementById('msg-' + message.id);
     replyBarText.textContent = '↩ ' + senderName(message) + ': ' + replySnippet(message);
     replyBar.style.display = 'flex';
     keepMessageInputFocused();
+  }
+
+  function resolveReplyId() {
+    if (!activeReply) return null;
+    const id = activeReplyRow?.dataset.id ?? activeReply.id;
+    if (id == null || (typeof id === 'string' && (!id.trim() || id.startsWith('tmp-')))) return null;
+    const numericId = Number(id);
+    return Number.isInteger(numericId) ? numericId : null;
+  }
+
+  function addResolvedReplyTo(payload) {
+    const replyToId = resolveReplyId();
+    if (Number.isInteger(Number(replyToId)) && replyToId !== null) payload.reply_to = Number(replyToId);
+    return payload;
   }
 
   async function getMessageById(id) {
@@ -409,7 +468,7 @@
       row.style.transform = '';
       if (activate) {
         try { navigator.vibrate?.(15); } catch {}
-        startReply(message);
+        startReply(message, row);
       }
       setTimeout(() => { row.style.transition = ''; }, 200);
     }, { passive: true });
@@ -845,9 +904,10 @@
 
   function promoteOptimisticRow(row, serverMessage) {
     if (!row || !serverMessage) return;
-    const oldId = row.id;
-    if (oldId && oldId.startsWith('tmp-')) messageIds.delete(oldId);
+    const oldId = row.dataset.id || row.id.replace(/^msg-/, '');
+    if (oldId && String(oldId).startsWith('tmp-')) messageIds.delete(oldId);
     row.id = 'msg-' + serverMessage.id;
+    row.dataset.id = String(serverMessage.id);
     delete row.dataset.temp;
     row.dataset.msg = JSON.stringify(serverMessage);
     row.dataset.sendStatus = 'sent';
@@ -859,6 +919,7 @@
     messageIds.add(serverMessage.id);
     messageCache.delete(oldId);
     messageCache.set(serverMessage.id, serverMessage);
+    if (activeReplyRow === row) activeReply = serverMessage;
     const previewUrl = row.dataset.tempObjectUrl;
     if (previewUrl && serverMessage.image_path) {
       getSignedUrl(serverMessage.image_path).then((url) => {
@@ -905,6 +966,7 @@
       const retry = row.querySelector('.retry-send');
       if (retry) retry.remove();
       row.classList.remove('send-error');
+      row.querySelector('.send-error-reason')?.remove();
       row.classList.add('is-sending');
       row.dataset.sendStatus = 'sending';
       row.style.opacity = '.6';
@@ -921,11 +983,16 @@
         if (options.onSuccess) options.onSuccess(serverMessage);
       } catch (error) {
         if (row.dataset.sendStatus === 'sent') return;
-        console.error('Lỗi gửi tin:', error);
+        console.error(error?.message || String(error));
         row.classList.remove('is-sending');
         row.classList.add('send-error');
         row.style.opacity = '1';
         row.dataset.sendStatus = 'failed';
+        const errorReason = document.createElement('div');
+        errorReason.className = 'send-error-reason';
+        errorReason.textContent = String(error?.message || error || 'Không gửi được tin nhắn').slice(0, 140);
+        Object.assign(errorReason.style, { color: '#b00020', fontSize: '12px', overflowWrap: 'anywhere', margin: '4px' });
+        (row.querySelector('.message-bubble, .msg-image-wrap') || row).appendChild(errorReason);
         const retryButton = document.createElement('button');
         retryButton.type = 'button';
         retryButton.className = 'retry-send';
@@ -952,9 +1019,9 @@
       image_path: sticker.path,
       is_sticker: true,
       content: null,
-      reply_to: activeReply?.id || null,
       remind_mode: remindSelect ? remindSelect.value : 'none'
     };
+    addResolvedReplyTo(payload);
     animateSendButton();
     await addOptimisticMessage(payload, async () => {
       const { data, error } = await supabase.from('messages').insert(payload).select('*').single();
@@ -1259,6 +1326,7 @@
     const row = document.createElement('div');
     row.className = 'message-row ' + (isSelf ? 'self' : 'other');
     row.id = 'msg-' + message.id;
+    row.dataset.id = String(message.id);
     if (options.temporary) {
       row.dataset.temp = 'true';
       row.dataset.sendStatus = 'sending';
@@ -1457,9 +1525,9 @@
       sender_id: currentUser.id,
       image_path: path,
       content: captionText || null,
-      reply_to: replyToId,
       remind_mode: remindSelect ? remindSelect.value : 'none'
     };
+    if (replyToId !== null && Number.isInteger(Number(replyToId))) payload.reply_to = Number(replyToId);
     animateSendButton();
     await addOptimisticMessage(payload, async () => {
       const blob = await resizeImage(file);
@@ -1491,7 +1559,7 @@
       resizeMessageInput();
       updateSendButtonVisibility();
     }
-    const replyToId = activeReply?.id || null;
+    const replyToId = resolveReplyId();
     for (let i = 0; i < files.length; i++) {
       uploadAndSendImage(files[i], i === 0 ? caption : '', replyToId);
     }
@@ -1547,13 +1615,12 @@
     sendStopTyping();
     const remindSelect = document.getElementById('remind-select');
     const remindMode = remindSelect ? remindSelect.value : 'none';
-    const replyToId = activeReply?.id || null;
     const payload = {
       content: text,
       sender_id: currentUser.id,
-      remind_mode: remindMode,
-      reply_to: replyToId
+      remind_mode: remindMode
     };
+    addResolvedReplyTo(payload);
     messageInput.value = '';
     resizeMessageInput();
     updateSendButtonVisibility();
