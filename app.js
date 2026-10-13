@@ -26,6 +26,15 @@
   const coverChange = document.getElementById('cover-change');
   const coverRemove = document.getElementById('cover-remove');
   const coverFile = document.getElementById('cover-file');
+  const coverCropOverlay = document.getElementById('cover-crop-overlay');
+  const coverCropStage = document.getElementById('cover-crop-stage');
+  const coverCropImage = document.getElementById('cover-crop-image');
+  const coverCropFrame = document.getElementById('cover-crop-frame');
+  const coverCropZoom = document.getElementById('cover-crop-zoom');
+  const coverCropZoomLabel = document.getElementById('cover-crop-zoom-label');
+  const coverCropCancel = document.getElementById('cover-crop-cancel');
+  const coverCropRotate = document.getElementById('cover-crop-rotate');
+  const coverCropDone = document.getElementById('cover-crop-done');
   const pwaInstallBanner = document.getElementById('pwa-install-banner');
   const messagesContainer = document.getElementById('messages-container');
   const sendGatherOverlay = document.getElementById('send-gather-overlay');
@@ -127,6 +136,7 @@
   const touchMoveGuard = (event) => {
     const target = event.target;
     if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (target.closest?.('button, label, a, [role="button"], #cover-menu')) return;
     const scrollArea = target.closest?.('.sticker-panel, .attach-menu, .cover-menu');
     if (scrollArea && scrollArea.scrollHeight > scrollArea.clientHeight) return;
     event.preventDefault();
@@ -140,6 +150,11 @@
   });
   let lastTouchEndAt = 0;
   document.addEventListener('touchend', (event) => {
+    const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+    if (target?.closest?.('button, label, input, textarea, select, a, [role="button"], #cover-menu')) {
+      lastTouchEndAt = 0;
+      return;
+    }
     const now = Date.now();
     if (lastTouchEndAt && now - lastTouchEndAt < 300) event.preventDefault();
     lastTouchEndAt = now;
@@ -150,6 +165,16 @@
   let realtimeChannel = null;
   let typingChannel = null;
   let coverChannel = null;
+  let coverCropBitmap = null;
+  let coverCropObjectUrl = null;
+  let coverCropFrameSize = { width: 0, height: 0 };
+  let coverCropBaseScale = 1;
+  let coverCropZoomValue = 1;
+  let coverCropRotation = 0;
+  let coverCropOffsetX = 0;
+  let coverCropOffsetY = 0;
+  let coverCropPointers = new Map();
+  let coverCropGesture = null;
   let typingTimer = null;
   let lastTypingSent = 0;
   const messageIds = new Set();
@@ -264,23 +289,193 @@
       .subscribe();
   }
 
-  async function resizeCoverImage(file) {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    return new Promise((resolve, reject) => canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error('Canvas không tạo được ảnh.'));
-    }, 'image/jpeg', 0.8));
+  function clampCoverCropPosition() {
+    if (!coverCropBitmap || !coverCropFrameSize.width || !coverCropFrameSize.height) return;
+    const rotated = Math.abs(coverCropRotation % 180) === 90;
+    const renderedWidth = (rotated ? coverCropBitmap.height : coverCropBitmap.width) * coverCropBaseScale * coverCropZoomValue;
+    const renderedHeight = (rotated ? coverCropBitmap.width : coverCropBitmap.height) * coverCropBaseScale * coverCropZoomValue;
+    const maxX = Math.max(0, (renderedWidth - coverCropFrameSize.width) / 2);
+    const maxY = Math.max(0, (renderedHeight - coverCropFrameSize.height) / 2);
+    coverCropOffsetX = Math.max(-maxX, Math.min(maxX, coverCropOffsetX));
+    coverCropOffsetY = Math.max(-maxY, Math.min(maxY, coverCropOffsetY));
   }
 
-  async function uploadCover(file) {
+  function renderCoverCrop() {
+    if (!coverCropBitmap) return;
+    clampCoverCropPosition();
+    coverCropImage.style.width = `${coverCropBitmap.width * coverCropBaseScale}px`;
+    coverCropImage.style.height = `${coverCropBitmap.height * coverCropBaseScale}px`;
+    coverCropImage.style.transform = `translate(-50%, -50%) translate(${coverCropOffsetX}px, ${coverCropOffsetY}px) scale(${coverCropZoomValue}) rotate(${coverCropRotation}deg)`;
+    coverCropZoom.value = String(coverCropZoomValue);
+    coverCropZoomLabel.textContent = `${coverCropZoomValue.toFixed(1)}×`;
+  }
+
+  function layoutCoverCrop() {
+    if (!coverCropBitmap || !coverCropStage.clientWidth || !coverCropStage.clientHeight) return;
+    const coverRect = coverElement.getBoundingClientRect();
+    const ratio = coverRect.width / Math.max(1, coverRect.height);
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    const maxHeight = Math.min(coverCropStage.clientHeight, viewportHeight * 0.8);
+    const maxWidth = Math.max(1, coverCropStage.clientWidth - 24);
+    const frameHeight = Math.min(maxHeight, maxWidth / ratio);
+    const frameWidth = frameHeight * ratio;
+    coverCropFrameSize = { width: frameWidth, height: frameHeight };
+    coverCropFrame.style.width = `${frameWidth}px`;
+    coverCropFrame.style.height = `${frameHeight}px`;
+    const rotated = Math.abs(coverCropRotation % 180) === 90;
+    const sourceWidth = rotated ? coverCropBitmap.height : coverCropBitmap.width;
+    const sourceHeight = rotated ? coverCropBitmap.width : coverCropBitmap.height;
+    coverCropBaseScale = Math.max(frameWidth / sourceWidth, frameHeight / sourceHeight);
+    renderCoverCrop();
+  }
+
+  async function openCoverCrop(file) {
     try {
-      const blob = await resizeCoverImage(file);
+      if (!file) return;
+      if (!coverCropOverlay || !coverCropStage || !coverCropImage || !coverCropFrame) {
+        throw new Error('Không tìm thấy màn hình cắt ảnh bìa.');
+      }
+      closeCoverCrop();
+      coverCropBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      coverCropObjectUrl = URL.createObjectURL(file);
+      coverCropImage.src = coverCropObjectUrl;
+      coverCropZoomValue = 1;
+      coverCropRotation = 0;
+      coverCropOffsetX = 0;
+      coverCropOffsetY = 0;
+      coverCropOverlay.classList.add('open');
+      coverCropOverlay.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('cover-crop-open');
+      if (coverCropImage.decode) await coverCropImage.decode();
+      layoutCoverCrop();
+    } catch (error) {
+      closeCoverCrop();
+      console.error(error?.message || String(error));
+      showCoverToast('Không mở được ảnh: ' + (error?.message || String(error)));
+    }
+  }
+
+  function closeCoverCrop() {
+    if (coverCropOverlay) {
+      coverCropOverlay.classList.remove('open');
+      coverCropOverlay.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('cover-crop-open');
+    coverCropPointers.clear();
+    coverCropGesture = null;
+    if (coverCropImage) coverCropImage.removeAttribute('src');
+    if (coverCropObjectUrl) URL.revokeObjectURL(coverCropObjectUrl);
+    coverCropObjectUrl = null;
+    if (coverCropBitmap) coverCropBitmap.close?.();
+    coverCropBitmap = null;
+  }
+
+  function coverCropPoint(event) {
+    const rect = coverCropStage.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function coverCropDistance(a, b) {
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  }
+
+  function startCoverCropGesture() {
+    const points = [...coverCropPointers.values()];
+    if (points.length >= 2) {
+      coverCropGesture = {
+        type: 'pinch',
+        distance: Math.max(1, coverCropDistance(points[0], points[1])),
+        midpoint: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 },
+        zoom: coverCropZoomValue,
+        offsetX: coverCropOffsetX,
+        offsetY: coverCropOffsetY
+      };
+    } else if (points.length === 1) {
+      coverCropGesture = {
+        type: 'drag', point: points[0], offsetX: coverCropOffsetX, offsetY: coverCropOffsetY
+      };
+    } else coverCropGesture = null;
+  }
+
+  function moveCoverCropPointer(event) {
+    if (!coverCropPointers.has(event.pointerId)) return;
+    coverCropPointers.set(event.pointerId, coverCropPoint(event));
+    const points = [...coverCropPointers.values()];
+    if (points.length >= 2 && coverCropGesture?.type === 'pinch') {
+      const midpoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+      const distance = coverCropDistance(points[0], points[1]);
+      const zoom = Math.max(1, Math.min(4, coverCropGesture.zoom * distance / coverCropGesture.distance));
+      const centerX = coverCropStage.clientWidth / 2;
+      const centerY = coverCropStage.clientHeight / 2;
+      coverCropOffsetX = midpoint.x - centerX -
+        ((coverCropGesture.midpoint.x - centerX - coverCropGesture.offsetX) / coverCropGesture.zoom) * zoom;
+      coverCropOffsetY = midpoint.y - centerY -
+        ((coverCropGesture.midpoint.y - centerY - coverCropGesture.offsetY) / coverCropGesture.zoom) * zoom;
+      coverCropZoomValue = zoom;
+    } else if (points.length === 1 && coverCropGesture?.type === 'drag') {
+      coverCropOffsetX = coverCropGesture.offsetX + points[0].x - coverCropGesture.point.x;
+      coverCropOffsetY = coverCropGesture.offsetY + points[0].y - coverCropGesture.point.y;
+    }
+    renderCoverCrop();
+  }
+
+  async function exportCoverCrop() {
+    if (!coverCropBitmap || !coverCropFrameSize.width || !coverCropFrameSize.height) {
+      throw new Error('Ảnh chưa sẵn sàng để cắt.');
+    }
+    const ratio = coverCropFrameSize.width / coverCropFrameSize.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = ratio >= 1 ? 1280 : Math.max(1, Math.round(1280 * ratio));
+    canvas.height = ratio >= 1 ? Math.max(1, Math.round(1280 / ratio)) : 1280;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Không tạo được canvas.');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const outputScale = canvas.width / coverCropFrameSize.width;
+    context.translate(canvas.width / 2 + coverCropOffsetX * outputScale,
+      canvas.height / 2 + coverCropOffsetY * outputScale);
+    context.rotate(coverCropRotation * Math.PI / 180);
+    context.scale(coverCropBaseScale * coverCropZoomValue * outputScale,
+      coverCropBaseScale * coverCropZoomValue * outputScale);
+    context.drawImage(coverCropBitmap, -coverCropBitmap.width / 2, -coverCropBitmap.height / 2);
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas không tạo được ảnh JPEG.'));
+    }, 'image/jpeg', 0.85));
+  }
+
+  async function finishCoverCrop() {
+    if (!coverCropBitmap || coverCropDone.disabled) return;
+    coverCropDone.disabled = true;
+    coverCropCancel.disabled = true;
+    coverCropRotate.disabled = true;
+    coverCropZoom.disabled = true;
+    coverCropDone.textContent = 'Đang lưu…';
+    try {
+      const blob = await exportCoverCrop();
+      if (await uploadCover(blob)) closeCoverCrop();
+    } catch (error) {
+      console.error(error?.message || String(error));
+      showCoverToast('Đổi ảnh bìa thất bại: ' + (error?.message || String(error)));
+    } finally {
+      if (coverCropOverlay.classList.contains('open')) {
+        coverCropDone.disabled = false;
+        coverCropCancel.disabled = false;
+        coverCropRotate.disabled = false;
+        coverCropZoom.disabled = false;
+        coverCropDone.textContent = 'Xong';
+      }
+    }
+  }
+
+  async function uploadCover(blob) {
+    let previewUrl = null;
+    const previousCover = coverElement.style.getPropertyValue('--chat-cover-image');
+    const previouslyHadCover = coverElement.classList.contains('has-cover');
+    try {
+      if (!currentUser || !blob) throw new Error('Chưa đăng nhập hoặc ảnh chưa sẵn sàng.');
+      previewUrl = URL.createObjectURL(blob);
+      applyCoverUrl(previewUrl);
       const path = `${currentUser.id}/covers/${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage.from('chat-images').upload(path, blob, {
         contentType: 'image/jpeg'
@@ -293,11 +488,35 @@
       }).eq('id', 1);
       if (updateError) throw updateError;
       await applyCoverPath(path, true);
+      if (coverUrlCache.has(path)) URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
       coverMenu.classList.remove('open');
+      return true;
     } catch (error) {
-      console.error('Đổi ảnh bìa thất bại:', error);
-      alert('Đổi ảnh bìa thất bại');
+      console.error(error?.message || String(error));
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previouslyHadCover) {
+        coverElement.style.setProperty('--chat-cover-image', previousCover);
+        coverElement.classList.add('has-cover');
+        messagesContainer.classList.add('has-cover');
+      } else {
+        coverElement.style.removeProperty('--chat-cover-image');
+        coverElement.classList.remove('has-cover');
+        messagesContainer.classList.remove('has-cover');
+      }
+      showCoverToast('Đổi ảnh bìa thất bại: ' + (error?.message || String(error)));
+      return false;
     }
+  }
+
+  function showCoverToast(message) {
+    document.querySelector('.cover-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.className = 'cover-toast';
+    toast.setAttribute('role', 'status');
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3500);
   }
 
   async function removeCover() {
@@ -311,8 +530,8 @@
       await applyCoverPath(null);
       coverMenu.classList.remove('open');
     } catch (error) {
-      console.error('Xóa ảnh bìa thất bại:', error);
-      alert('Đổi ảnh bìa thất bại');
+      console.error(error?.message || String(error));
+      showCoverToast('Xóa ảnh bìa thất bại: ' + (error?.message || String(error)));
     }
   }
 
@@ -1813,23 +2032,65 @@
   });
 
   btnLogout.addEventListener('click', async () => { await supabase.auth.signOut(); showAuth(); });
-  btnCover.addEventListener('click', (event) => {
-    event.stopPropagation();
-    coverMenu.classList.toggle('open');
+  if (!btnCover || !coverMenu || !coverChange || !coverRemove || !coverFile) {
+    console.error('Thiếu nút, menu hoặc input ảnh bìa trong index.html.');
+  } else {
+    btnCover.onclick = (event) => {
+      event.stopPropagation();
+      coverMenu.classList.toggle('open');
+    };
+    coverMenu.onclick = (event) => event.stopPropagation();
+    document.addEventListener('click', (event) => {
+      if (!coverMenu.contains(event.target) && event.target !== btnCover) coverMenu.classList.remove('open');
+    });
+    coverChange.onclick = () => {
+      coverMenu.classList.remove('open');
+      coverFile.value = '';
+      coverFile.click();
+    };
+    coverRemove.onclick = () => {
+      coverMenu.classList.remove('open');
+      removeCover();
+    };
+    coverFile.onchange = () => {
+      const file = coverFile.files?.[0];
+      coverFile.value = '';
+      if (file) openCoverCrop(file);
+    };
+  }
+  if (coverCropCancel) coverCropCancel.onclick = closeCoverCrop;
+  if (coverCropRotate) coverCropRotate.onclick = () => {
+    if (!coverCropBitmap) return;
+    coverCropRotation = (coverCropRotation + 90) % 360;
+    layoutCoverCrop();
+  };
+  if (coverCropDone) coverCropDone.onclick = finishCoverCrop;
+  if (coverCropZoom) coverCropZoom.addEventListener('input', () => {
+    coverCropZoomValue = Math.max(1, Math.min(4, Number(coverCropZoom.value) || 1));
+    renderCoverCrop();
   });
-  coverMenu.addEventListener('click', (event) => event.stopPropagation());
-  document.addEventListener('click', (event) => {
-    if (!coverMenu.contains(event.target) && event.target !== btnCover) coverMenu.classList.remove('open');
-  });
-  coverChange.addEventListener('click', () => {
-    coverMenu.classList.remove('open');
-    coverFile.value = '';
-    coverFile.click();
-  });
-  coverRemove.addEventListener('click', removeCover);
-  coverFile.addEventListener('change', () => {
-    if (coverFile.files?.[0]) uploadCover(coverFile.files[0]);
-  });
+  if (coverCropStage) {
+    coverCropStage.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      coverCropPointers.set(event.pointerId, coverCropPoint(event));
+      try { coverCropStage.setPointerCapture(event.pointerId); } catch {}
+      startCoverCropGesture();
+    });
+    coverCropStage.addEventListener('pointermove', moveCoverCropPointer);
+    const finishCropPointer = (event) => {
+      if (!coverCropPointers.has(event.pointerId)) return;
+      coverCropPointers.delete(event.pointerId);
+      startCoverCropGesture();
+      try { coverCropStage.releasePointerCapture(event.pointerId); } catch {}
+    };
+    coverCropStage.addEventListener('pointerup', finishCropPointer);
+    coverCropStage.addEventListener('pointercancel', finishCropPointer);
+  }
+  const relayoutCropOnViewportChange = () => {
+    if (coverCropOverlay?.classList.contains('open')) layoutCoverCrop();
+  };
+  window.addEventListener('resize', relayoutCropOnViewportChange);
+  window.visualViewport?.addEventListener('resize', relayoutCropOnViewportChange);
   let sendTouchStarted = false;
   let ignoreSendClick = false;
   btnSend.addEventListener('mousedown', (event) => event.preventDefault());

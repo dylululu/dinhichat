@@ -11,7 +11,7 @@
 
 ## Bản đồ file
 - `index.html`: UI chat, ảnh bìa ở lớp #chat-cover cố định 100lvh, sticker tray, thanh trả lời, vuốt, ảnh; viewport 1x, font nhập 16px, layout bàn phím PWA.
-- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, cuộn list khi bàn phím mở, ResizeObserver danh sách chat, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `app.js`: Logic client (initChat, ensurePush, fitViewport RAF + visualViewport, cuộn list khi bàn phím mở, ResizeObserver danh sách chat, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -44,7 +44,7 @@
 - Khung nhập nhiều dòng tự giãn giữ font 16px; nút nhắc chỉ hiện icon, xoay 4 chế độ và lưu lựa chọn cục bộ.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
-- Ảnh bìa dùng lớp #chat-cover cố định 100lvh; khi bàn phím mở, list cuộn cuối sau resize, không zoom ảnh bìa.
+- Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
 
 ## Đang làm / Dở dang

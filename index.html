@@ -246,7 +246,7 @@
       position: absolute;
       top: calc(100% + 8px);
       right: 0;
-      z-index: 30;
+      z-index: 20;
       min-width: 190px;
       padding: 5px;
       background: #fff0f6;
@@ -305,7 +305,8 @@
     }
     #auth-screen { z-index: 2; }
     #app { z-index: 1; background: transparent; }
-    .chat-header, .chat-messages, .chat-input-bar { position: relative; z-index: 1; }
+    .chat-header { position: relative; z-index: 10; }
+    .chat-messages, .chat-input-bar { position: relative; z-index: 1; }
     .chat-messages {
       flex: 1;
       overflow-y: auto;
@@ -358,6 +359,22 @@
       min-height: calc(52px + env(safe-area-inset-top));
       padding: calc(env(safe-area-inset-top) + 8px) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
       gap: 8px;
+    }
+    body.kb .cover-menu { max-height: 40dvh; overflow-y: auto; }
+    .cover-toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom) + 76px);
+      z-index: 20001;
+      max-width: 90vw;
+      padding: 8px 12px;
+      border-radius: 16px;
+      background: #8b123f;
+      color: #fff;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+      transform: translateX(-50%);
+      pointer-events: none;
     }
     .header-user-info, .header-actions { min-width: 0; flex-shrink: 0; gap: 8px; }
     .header-user-info { flex: 1; }
@@ -786,6 +803,73 @@
       object-fit: contain;
     }
 
+    .cover-crop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      bottom: auto;
+      height: var(--vvh, 100dvh);
+      z-index: 20000;
+      flex-direction: column;
+      padding: calc(env(safe-area-inset-top) + 8px) max(12px, env(safe-area-inset-right))
+        calc(env(safe-area-inset-bottom) + 12px) max(12px, env(safe-area-inset-left));
+      box-sizing: border-box;
+      overflow: hidden;
+      background: #080808;
+      color: #fff;
+    }
+    .cover-crop-overlay.open { display: flex; }
+    .cover-crop-heading { flex: 0 0 auto; padding: 4px 0 10px; text-align: center; font-size: 15px; }
+    .cover-crop-stage {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 120px;
+      width: 100%;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+    }
+    #cover-crop-image {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      max-width: none;
+      max-height: none;
+      transform-origin: center center;
+      touch-action: none;
+      user-select: none;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .cover-crop-frame {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      border: 0;
+      outline: 2px solid #fff;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, .6);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-sizing: border-box;
+    }
+    .cover-crop-zoom { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 12px 0; font-size: 13px; }
+    .cover-crop-zoom input { flex: 1; min-width: 0; accent-color: #ff5e9a; }
+    .cover-crop-actions { display: flex; justify-content: center; gap: 10px; flex: 0 0 auto; }
+    .cover-crop-actions button {
+      min-width: 88px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid rgba(255,255,255,.45);
+      border-radius: 12px;
+      background: #282328;
+      color: #fff;
+      font: inherit;
+      font-size: 14px;
+      touch-action: manipulation;
+    }
+    .cover-crop-actions #cover-crop-done { background: #e91e63; border-color: #e91e63; }
+    .cover-crop-actions button:disabled { opacity: .6; }
+
     /* Chat Input */
     .chat-input-bar {
       padding: 8px 10px;
@@ -1107,7 +1191,8 @@
         <button id="btn-logout" class="btn-logout">Thoát</button>
       </div>
     </header>
-    <input type="file" id="cover-file" accept="image/*" style="display:none">
+    <input type="file" id="cover-file" accept="image/*"
+      style="position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none">
 
     <div id="pwa-install-banner" class="notice-banner">
       Để nhận thông báo trên iPhone: Bấm nút <strong>Chia sẻ</strong> (biểu tượng hộp có mũi tên) → <strong>Thêm vào Màn
@@ -1148,6 +1233,24 @@
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
     </footer>
+  </div>
+
+  <div id="cover-crop-overlay" class="cover-crop-overlay" aria-hidden="true">
+    <div class="cover-crop-heading">Kéo ảnh để chỉnh vị trí · chụm để thu phóng</div>
+    <div id="cover-crop-stage" class="cover-crop-stage">
+      <img id="cover-crop-image" alt="Xem trước ảnh bìa" draggable="false">
+      <div id="cover-crop-frame" class="cover-crop-frame" aria-hidden="true"></div>
+    </div>
+    <label class="cover-crop-zoom" for="cover-crop-zoom">
+      <span>Thu phóng</span>
+      <input id="cover-crop-zoom" type="range" min="1" max="4" step="0.01" value="1">
+      <span id="cover-crop-zoom-label">1×</span>
+    </label>
+    <div class="cover-crop-actions">
+      <button id="cover-crop-cancel" type="button">Hủy</button>
+      <button id="cover-crop-rotate" type="button">Xoay ⟳</button>
+      <button id="cover-crop-done" type="button">Xong</button>
+    </div>
   </div>
 
   <!-- Image full-screen overlay -->
