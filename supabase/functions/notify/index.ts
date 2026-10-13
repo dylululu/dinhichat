@@ -44,7 +44,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: senderProfile } = await supabase
       .from("profiles")
-      .select("name")
+      .select("name, push_subscription")
       .eq("id", record.sender_id)
       .single();
 
@@ -57,7 +57,16 @@ Deno.serve(async (req: Request) => {
       .neq("id", record.sender_id)
       .not("push_subscription", "is", null);
 
-    if (!targetProfiles || targetProfiles.length === 0) {
+    const senderEndpoint = senderProfile?.push_subscription?.endpoint;
+    const uniqueTargets = new Map<string, { id: string; push_subscription: any }>();
+    for (const profile of targetProfiles || []) {
+      const endpoint = profile.push_subscription?.endpoint;
+      if (!endpoint || endpoint === senderEndpoint || uniqueTargets.has(endpoint)) continue;
+      uniqueTargets.set(endpoint, profile);
+    }
+    const recipients = [...uniqueTargets.values()];
+
+    if (recipients.length === 0) {
       return new Response(JSON.stringify({ message: "No subscribers" }), {
         headers: { "Content-Type": "application/json" },
         status: 200
@@ -66,7 +75,7 @@ Deno.serve(async (req: Request) => {
 
     // Gửi push thông báo ngay
     const pushPayload = JSON.stringify({ title: senderName, body });
-    for (const profile of targetProfiles) {
+    for (const profile of recipients) {
       await sendPush(profile, pushPayload, supabase);
     }
 
