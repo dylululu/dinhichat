@@ -10,7 +10,7 @@
 
   // DOM
   const authScreen = document.getElementById('auth-screen');
-  const chatScreen = document.getElementById('chat-screen');
+  const chatScreen = document.getElementById('app');
   const loginForm = document.getElementById('login-form');
   const loginEmail = document.getElementById('login-email');
   const loginPassword = document.getElementById('login-password');
@@ -52,45 +52,49 @@
   const typingIndicator = document.getElementById('typing-indicator');
   const peerPushNotice = document.getElementById('peer-push-notice');
   const notificationHelp = document.getElementById('notification-help');
-  let viewportKeyboardOpen = false;
-
-  function syncVisualViewport() {
+  function fitViewport() {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const focused = document.activeElement;
-    const editing = focused && (focused.matches('input, textarea, select') || focused.isContentEditable);
-    const keyboardOpen = editing && viewport.height < window.innerHeight - 120;
-    const top = keyboardOpen ? viewport.offsetTop : 0;
-    const left = keyboardOpen ? viewport.offsetLeft : 0;
-    const width = keyboardOpen ? viewport.width : window.innerWidth;
-    const height = keyboardOpen ? viewport.height : null;
-    [authScreen, chatScreen].forEach((screen) => {
-      screen.style.top = `${top}px`;
-      screen.style.left = `${left}px`;
-      screen.style.width = `${width}px`;
-      screen.style.height = height ? `${height}px` : '100dvh';
-      screen.style.right = 'auto';
-      screen.style.bottom = 'auto';
-    });
-    if (sendGatherOverlay) {
-      sendGatherOverlay.style.top = `${top}px`;
-      sendGatherOverlay.style.left = `${left}px`;
-      sendGatherOverlay.style.width = `${width}px`;
-      sendGatherOverlay.style.height = height ? `${height}px` : '100dvh';
-    }
-    if (keyboardOpen && !viewportKeyboardOpen) {
-      requestAnimationFrame(() => messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' }));
-    }
-    viewportKeyboardOpen = keyboardOpen;
+    document.documentElement.style.setProperty('--vvh', `${viewport.height}px`);
+    document.documentElement.style.setProperty('--vvt', `${viewport.offsetTop}px`);
     try { window.scrollTo(0, 0); } catch {}
+    const portrait = window.screen.height > window.screen.width;
+    const keyboardOpen = (window.innerHeight - viewport.height) > 120 ||
+      (portrait && (window.screen.height - viewport.height) > 150);
+    document.body.classList.toggle('kb', keyboardOpen);
+    if (keyboardOpen) {
+      requestAnimationFrame(() => { messagesContainer.scrollTop = messagesContainer.scrollHeight; });
+    }
+  }
+
+  function scheduleFitViewport() {
+    [0, 100, 300, 600].forEach((delay) => window.setTimeout(fitViewport, delay));
   }
 
   if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', syncVisualViewport);
-    window.visualViewport.addEventListener('scroll', syncVisualViewport);
-    window.addEventListener('resize', syncVisualViewport);
-    syncVisualViewport();
+    window.visualViewport.addEventListener('resize', fitViewport);
+    window.visualViewport.addEventListener('scroll', fitViewport);
+    window.addEventListener('orientationchange', () => window.setTimeout(fitViewport, 300));
+    messageInput.addEventListener('focusin', scheduleFitViewport);
+    messageInput.addEventListener('focusout', scheduleFitViewport);
+    fitViewport();
   }
+
+  function keepMessageInputFocused() {
+    try { messageInput.focus({ preventScroll: true }); }
+    catch { messageInput.focus(); }
+    fitViewport();
+  }
+
+  const touchMoveGuard = (event) => {
+    const target = event.target;
+    if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const scrollArea = target.closest?.('.sticker-panel, .attach-menu, .cover-menu');
+    if (scrollArea && scrollArea.scrollHeight > scrollArea.clientHeight) return;
+    event.preventDefault();
+  };
+  document.querySelector('.chat-header')?.addEventListener('touchmove', touchMoveGuard, { passive: false });
+  document.querySelector('.chat-input-bar')?.addEventListener('touchmove', touchMoveGuard, { passive: false });
 
   let currentUser = null;
   let currentProfile = null;
@@ -312,7 +316,7 @@
     activeReply = message;
     replyBarText.textContent = '↩ ' + senderName(message) + ': ' + replySnippet(message);
     replyBar.style.display = 'flex';
-    messageInput.focus();
+    keepMessageInputFocused();
   }
 
   async function getMessageById(id) {
@@ -1554,6 +1558,7 @@
     resizeMessageInput();
     updateSendButtonVisibility();
     animateSendButton();
+    keepMessageInputFocused();
     await addOptimisticMessage(payload, async () => {
       const { data, error } = await supabase.from('messages').insert(payload).select('*').single();
       if (error) throw error;
@@ -1568,7 +1573,7 @@
     });
     if (remindSelect) remindSelect.value = 'none';
     clearReply();
-    messageInput.focus();
+    keepMessageInputFocused();
   }
 
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
@@ -1595,7 +1600,7 @@
       currentUser = user;
       authScreen.classList.remove('active');
       chatScreen.classList.add('active');
-      requestAnimationFrame(syncVisualViewport);
+      requestAnimationFrame(fitViewport);
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (profile) {
@@ -1626,7 +1631,7 @@
     hideTyping();
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
-    requestAnimationFrame(syncVisualViewport);
+    requestAnimationFrame(fitViewport);
   }
 
   // ─── Login form ───────────────────────────────────────────────────────────────
@@ -1672,7 +1677,26 @@
   coverFile.addEventListener('change', () => {
     if (coverFile.files?.[0]) uploadCover(coverFile.files[0]);
   });
-  btnSend.addEventListener('click', sendMessage);
+  let sendTouchStarted = false;
+  let ignoreSendClick = false;
+  btnSend.addEventListener('mousedown', (event) => event.preventDefault());
+  btnSend.addEventListener('touchstart', (event) => {
+    event.preventDefault();
+    sendTouchStarted = true;
+  }, { passive: false });
+  btnSend.addEventListener('touchend', (event) => {
+    if (!sendTouchStarted) return;
+    event.preventDefault();
+    sendTouchStarted = false;
+    ignoreSendClick = true;
+    sendMessage();
+    window.setTimeout(() => { ignoreSendClick = false; }, 500);
+  }, { passive: false });
+  btnSend.addEventListener('touchcancel', () => { sendTouchStarted = false; });
+  btnSend.addEventListener('click', (event) => {
+    if (ignoreSendClick) { event.preventDefault(); return; }
+    sendMessage();
+  });
   if (newMessagesButton) newMessagesButton.addEventListener('click', scrollMessagesToBottom);
   replyCancel.addEventListener('click', clearReply);
   messageInput.addEventListener('input', () => { resizeMessageInput(); updateSendButtonVisibility(); sendTyping(); });
