@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, Telex/emoji và 🌐 chuyển bàn phím iOS; #chat-cover cố định 100lvh+120px, trượt parallax, sticker tray, trả lời, ảnh; viewport 1x.
-- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardKey, telex(word,key) theo từ/con trỏ và vị trí dấu, fitViewport RAF + visualViewport, cuộn list/ResizeObserver, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
+- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; #chat-cover cố định 100lvh+120px, trượt parallax, sticker tray, trả lời, ảnh; viewport 1x.
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardKey, toggleKeyboardLanguage qua delegation, telex(word,key) theo từ/con trỏ và vị trí dấu, fitViewport RAF + visualViewport, cuộn list/ResizeObserver, chặn zoom gesture, resizeMessageInput, renderRemindMode, addMsg, addOptimisticMessage, promoteOptimisticRow, resolveReplyId, animateMessage, animateSendTextEffect, animateSendGatherEffect, loadCover, refreshCoverFromServer, openCoverCrop, layoutCoverCrop, exportCoverCrop, uploadCover, loadStickers, sendSticker, startReply, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -41,7 +41,7 @@
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
-- Bàn phím ảo #kb `height:auto`, hàng phím 46px; chỉ đóng bằng ⌄, gửi tin hoặc chạm ngoài (không đóng khi blur/chạm trong); bố cục iPhone, hồng/tối, Telex telex(word,key), emoji và chạm giữ 😊 chuyển iOS.
+- Bàn phím ảo #kb `height:auto`, `.kb-top` riêng phía trên hàng phím; gửi xong giữ bàn phím mở, focus ô nhập và cuộn cuối; phím VI/EN đổi qua pointerup delegation.
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.

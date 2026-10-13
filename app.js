@@ -47,6 +47,8 @@
   const customKeyboardEmojiGrid = document.getElementById('kb-emoji-grid');
   const customKeyboardEmojiTabs = document.getElementById('kb-emoji-tabs');
   const customKeyboardPopover = document.getElementById('kb-popover');
+  const keyboardLangToast = document.getElementById('kb-lang-toast');
+  const keyboardSpaceLabel = document.getElementById('kb-space-label');
   const customKeyboardSymbols = document.querySelector('.kb-symbols');
   const customKeyboardLetters = document.querySelector('.kb-letters');
   const btnSend = document.getElementById('btn-send');
@@ -84,13 +86,56 @@
   let keyboardEmojiCategory = 'recent';
   let keyboardShift = false;
   let keyboardCapsLock = false;
-  let keyboardTelex = true;
+  const keyboardLangStorageKey = 'dinhichat_keyboard_lang_v1';
+  let kbLang = 'vi';
+  try { kbLang = localStorage.getItem(keyboardLangStorageKey) === 'en' ? 'en' : 'vi'; } catch {}
   let deleteRepeatTimer = null;
   let deleteRepeatStart = null;
   let emojiHoldTimer = null;
   let emojiHoldFired = false;
   let pendingEmojiKey = null;
   let alternateSymbols = false;
+  let langPointerDown = null;
+  let lastLangToggleAt = 0;
+  let langToastTimer = null;
+
+  function renderKeyboardLanguage() {
+    const languageKey = customKeyboard.querySelector('[data-kb-key="language"]');
+    if (languageKey) {
+      languageKey.textContent = kbLang.toUpperCase();
+      languageKey.classList.toggle('vi-active', kbLang === 'vi');
+      languageKey.classList.toggle('en-active', kbLang === 'en');
+      languageKey.setAttribute('aria-label', kbLang === 'vi' ? 'Tiếng Việt đang bật' : 'English đang bật');
+    }
+    if (keyboardSpaceLabel) keyboardSpaceLabel.textContent = kbLang.toUpperCase();
+  }
+
+  function toggleKeyboardLanguage() {
+    kbLang = kbLang === 'vi' ? 'en' : 'vi';
+    try { localStorage.setItem(keyboardLangStorageKey, kbLang); } catch {}
+    renderKeyboardLanguage();
+    if (keyboardLangToast) {
+      keyboardLangToast.textContent = kbLang === 'vi' ? 'Tiếng Việt' : 'English';
+      keyboardLangToast.classList.add('visible');
+      clearTimeout(langToastTimer);
+      langToastTimer = setTimeout(() => keyboardLangToast.classList.remove('visible'), 800);
+    }
+  }
+  renderKeyboardLanguage();
+
+  function completeKeyboardLanguagePointer(type, event) {
+    if (!langPointerDown || event.pointerId !== langPointerDown.pointerId) return;
+    const down = langPointerDown;
+    langPointerDown = null;
+    const upTarget = document.elementFromPoint?.(event.clientX, event.clientY) || event.target;
+    const upKey = upTarget.closest?.('[data-kb-key="language"]');
+    const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
+    const now = Date.now();
+    if (type === 'pointerup' && upKey === down.button && !down.moved && moved <= 10 && now - lastLangToggleAt >= 300) {
+      lastLangToggleAt = now;
+      toggleKeyboardLanguage();
+    }
+  }
 
   function openPinkKeyboard() {
     if (!customKeyboard || stickerPanel?.classList.contains('open')) return;
@@ -324,7 +369,7 @@
       if (keyboardCapsLock || keyboardShift || !prefix.trim() || /[.!?]\s*$|\n\s*$/.test(prefix)) value = value.toUpperCase();
       if (keyboardShift && !keyboardCapsLock) { keyboardShift = false; updateKeyboardCase(); }
     }
-    if (useTelex && keyboardTelex && letter && start === end) {
+    if (useTelex && kbLang === 'vi' && letter && start === end) {
       const prefix = messageInput.value.slice(0, start);
       const match = prefix.match(/[\p{Script=Latin}]+$/u);
       if (match) {
@@ -439,17 +484,13 @@
       return;
     }
     if (key === 'letters') { setKeyboardTab('letters'); return; }
+    if (key === 'language') return;
     if (key === 'emoji') {
       if (keyboardTab === 'emoji') setKeyboardTab(keyboardPreviousTab);
       else { keyboardPreviousTab = keyboardTab; setKeyboardTab('emoji'); }
       return;
     }
     if (key === 'globe') { useNativeKeyboard(); return; }
-    if (key === 'telex') {
-      keyboardTelex = !keyboardTelex;
-      document.querySelector('[data-kb-key="telex"]').textContent = keyboardTelex ? 'VI' : 'EN';
-      return;
-    }
     if (key === 'newline') { insertComposerText('\n', false); return; }
     if (key === 'space') { insertComposerText(' ', false); return; }
     if (key.startsWith('emoji:')) { insertEmoji(key.slice(6)); return; }
@@ -502,13 +543,14 @@
   }
 
   function handleKeyboardPointerDown(event) {
+    event.preventDefault();
+    event.stopPropagation();
     let keyButton = event.target.closest?.('[data-kb-key]');
     if (!keyButton) {
       const row = event.target.closest?.('.kb-key-row');
       if (row) keyButton = nearestKeyboardKey(row, event.clientX);
     }
     if (!keyButton) return;
-    event.preventDefault();
     try { keyButton.setPointerCapture(event.pointerId); } catch {}
     keyButton.classList.add('pressed');
     try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
@@ -524,6 +566,10 @@
       }, 500);
       return;
     }
+    if (key === 'language') {
+      langPointerDown = { pointerId: event.pointerId, button: keyButton, x: event.clientX, y: event.clientY, moved: false };
+      return;
+    }
     if (key === 'backspace') startDeleteRepeat();
     else handleKeyboardKey(key);
     showKeyboardPopover(keyButton);
@@ -533,13 +579,14 @@
   customKeyboard.addEventListener('click', (event) => {
     if (event.detail !== 0) return;
     const keyButton = event.target.closest?.('[data-kb-key]');
-    if (keyButton) handleKeyboardKey(keyButton.dataset.kbKey);
+    if (keyButton && keyButton.dataset.kbKey !== 'language') handleKeyboardKey(keyButton.dataset.kbKey);
   });
-  customKeyboard.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+  customKeyboard.addEventListener('pointermove', (event) => {
+    if (!langPointerDown || event.pointerId !== langPointerDown.pointerId) return;
+    if (Math.hypot(event.clientX - langPointerDown.x, event.clientY - langPointerDown.y) > 10) langPointerDown.moved = true;
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((type) => customKeyboard.addEventListener(type, (event) => {
+    completeKeyboardLanguagePointer(type, event);
     if (pendingEmojiKey) {
       clearTimeout(emojiHoldTimer);
       if (type === 'pointerup' && !emojiHoldFired) handleKeyboardKey('emoji');
@@ -2467,12 +2514,11 @@
         clearReply();
       }
     });
-    if (pinkKeyboardOpen) {
-      closePinkKeyboard();
-      scrollMessagesAfterKeyboard(true);
-    }
+    if (pinkKeyboardOpen) scrollMessagesAfterKeyboard(true);
     await pendingSend;
     clearReply();
+    keepMessageInputFocused();
+    scrollMessagesToBottom();
   }
 
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
@@ -2620,6 +2666,7 @@
   window.visualViewport?.addEventListener('resize', relayoutCropOnViewportChange);
   let sendTouchStarted = false;
   let ignoreSendClick = false;
+  btnSend.addEventListener('pointerdown', (event) => event.preventDefault());
   btnSend.addEventListener('mousedown', (event) => event.preventDefault());
   btnSend.addEventListener('touchstart', (event) => {
     event.preventDefault();

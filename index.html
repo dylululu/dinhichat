@@ -348,18 +348,18 @@
     #kb.open {
       flex-basis: auto;
       height: auto;
-      padding: 8px 0 calc(env(safe-area-inset-bottom) + 6px);
+      padding: 0 0 calc(env(safe-area-inset-bottom) + 6px);
       overflow: visible;
       transform: translateY(0);
       opacity: 1;
       visibility: visible;
     }
-    .kb-grip-row { height: 24px; display: flex; justify-content: center; align-items: center; position: relative; flex: 0 0 24px; }
+    .kb-top { height: 32px; display: flex; justify-content: center; align-items: center; position: relative; flex: 0 0 32px; margin-bottom: 6px; }
     .kb-grip {
-      width: 32px; height: 4px; border: 0; border-radius: 8px; background: #e4a8bc; padding: 0;
+      position: absolute; left: 50%; transform: translateX(-50%); width: 32px; height: 4px; border: 0; border-radius: 8px; background: #e4a8bc; padding: 0;
       touch-action: none;
     }
-    .kb-hide { position: absolute; right: 8px; top: 0; width: 40px; height: 40px; border: 0; background: transparent; color: inherit; font-size: 20px; z-index: 2; }
+    .kb-hide { position: static; flex: 0 0 56px; margin-left: auto; width: 56px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: #f8bbd0; color: inherit; font-size: 22px; font-weight: 700; line-height: 1; z-index: 2; }
     .kb-rows { display: flex; flex: 0 0 auto; flex-direction: column; gap: 10px; padding: 0 5px; height: auto; box-sizing: border-box; }
     .kb-key-row { display: flex; justify-content: center; gap: 6px; flex: 0 0 46px; height: 46px; min-height: 46px; }
     .kb-key {
@@ -373,9 +373,14 @@
     .kb-key.enter { background: #e91e63; color: #fff; font-size: 17px; }
     .kb-key.wide, .kb-letters .kb-key.function { flex: 1.4 1 0; }
     .kb-key.space { flex: 1 1 0; position: relative; }
-    .kb-space-label { position: absolute; width: 48px; height: 100%; top: 0; left: 50%; display: grid; place-items: center; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .72; }
+    .kb-space-label { position: absolute; width: 48px; height: 100%; top: 0; left: 50%; display: grid; place-items: center; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .72; pointer-events: none; }
+    .kb-lang-toast { position: absolute; z-index: 20; left: 50%; top: -34px; transform: translateX(-50%) translateY(4px); padding: 6px 12px; border-radius: 14px; background: rgba(233,30,99,.94); color: #fff; font-size: 13px; line-height: 18px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms ease, transform 140ms ease; }
+    .kb-lang-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
     .kb-bottom-row .kb-key[data-kb-key="symbols"] { flex: 0 0 44px; font-size: 15px; }
     .kb-bottom-row .kb-key[data-kb-key="emoji"] { flex: 0 0 44px; font-size: 20px; }
+    .kb-bottom-row .kb-key.lang { flex: 0 0 48px; font-size: 15px; font-weight: 700; }
+    .kb-bottom-row .kb-key.lang.vi-active { color: #c2185b; background: #f8bbd0; }
+    .kb-bottom-row .kb-key.lang.en-active { color: #777; background: #f2edf0; }
     .kb-bottom-row .kb-key.enter { flex: 0 0 80px; }
     .kb-bottom-row .kb-key.space { min-width: 36px; }
     .kb-letters { display: flex; flex: 0 0 auto; flex-direction: column; justify-content: flex-start; gap: 10px; }
@@ -402,6 +407,7 @@
     body.native-keyboard-mode #kb-toggle { display: inline-flex; align-items: center; justify-content: center; }
     @media (prefers-color-scheme: dark) {
       #kb { background: #3a1d2a; color: #fff; }
+      #kb .kb-hide { background: #3a1d2a; color: #fff; }
       .kb-key, .kb-emoji { background: #5a2d40; color: #fff; box-shadow: 0 2px 2px rgba(0,0,0,.3); }
       .kb-key.function { background: #3a1d2a; }
       .kb-key.function.shift-on { background: #5a2d40; color: #fff; }
@@ -417,6 +423,7 @@
       .kb-rows { padding-left: 4px; padding-right: 4px; }
       .kb-bottom-row { gap: 4px; }
       .kb-bottom-row .kb-key[data-kb-key="symbols"], .kb-bottom-row .kb-key[data-kb-key="emoji"] { flex-basis: 40px; }
+      .kb-bottom-row .kb-key.lang { flex-basis: 44px; }
       .kb-bottom-row .kb-key.enter { flex-basis: 68px; }
       .kb-bottom-row .kb-key.space { min-width: 24px; }
     }
@@ -1340,7 +1347,8 @@
     </footer>
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
       <div id="kb-popover" class="kb-popover" aria-hidden="true"></div>
-      <div class="kb-grip-row"><span class="kb-grip" aria-hidden="true"></span><button id="kb-hide" class="kb-hide" type="button" aria-label="Ẩn bàn phím">⌄</button></div>
+      <div id="kb-lang-toast" class="kb-lang-toast" role="status" aria-live="polite"></div>
+      <div class="kb-top"><span class="kb-grip" aria-hidden="true"></span><button id="kb-hide" class="kb-hide" type="button" aria-label="Ẩn bàn phím">⌄</button></div>
       <div class="kb-rows">
         <div class="kb-letters">
           <div class="kb-key-row"><button class="kb-key" data-kb-key="q">q</button><button class="kb-key" data-kb-key="w">w</button><button class="kb-key" data-kb-key="e">e</button><button class="kb-key" data-kb-key="r">r</button><button class="kb-key" data-kb-key="t">t</button><button class="kb-key" data-kb-key="y">y</button><button class="kb-key" data-kb-key="u">u</button><button class="kb-key" data-kb-key="i">i</button><button class="kb-key" data-kb-key="o">o</button><button class="kb-key" data-kb-key="p">p</button></div>
@@ -1358,7 +1366,7 @@
           </div>
           <div id="kb-emoji-grid" class="kb-emoji-grid"></div>
         </div>
-        <div class="kb-key-row kb-bottom-row"><button class="kb-key function wide" data-kb-key="symbols">123</button><button class="kb-key function" data-kb-key="emoji">😊</button><button class="kb-key space" data-kb-key="space"><span class="kb-space-label" data-kb-key="telex">VI</span></button><button class="kb-key enter" data-kb-key="newline">↵</button></div>
+        <div class="kb-key-row kb-bottom-row"><button class="kb-key function wide" data-kb-key="symbols">123</button><button class="kb-key function" data-kb-key="emoji">😊</button><button class="kb-key function lang" data-kb-key="language" aria-label="Đổi tiếng Việt hoặc English">VI</button><button class="kb-key space" data-kb-key="space"><span id="kb-space-label" class="kb-space-label">VI</span></button><button class="kb-key enter" data-kb-key="newline">↵</button></div>
       </div>
     </section>
   </div>
