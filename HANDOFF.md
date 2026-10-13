@@ -31,6 +31,7 @@
 - Gửi ảnh: nén canvas 1280px JPEG, lưu private bucket, signed URL cache, xem toàn màn hình.
 - Cache localStorage 100 tin, đồng bộ nhanh khi mở/focus/click thông báo.
 - Nhắc lại tin nhắn (chế độ none/1/2/loop, hiện icon 🔔/🔁, trigger đặt next_remind_at, cron job định kỳ).
+- Chế độ nhắc áp dụng cho một tin gửi; sau khi gửi thành công tự về “Không nhắc”, không lưu lựa chọn cũ.
 - Tinh chỉnh CSS thanh nhập tin nhắn responsive không tràn màn hình điện thoại.
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
 - "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.

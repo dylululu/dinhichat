@@ -85,13 +85,7 @@
   }
 
   const remindSelect = document.getElementById('remind-select');
-  if (remindSelect) {
-    const savedRemind = lsGet('dinhichat_remind_mode');
-    if (savedRemind) remindSelect.value = savedRemind;
-    remindSelect.addEventListener('change', () => {
-      lsSet('dinhichat_remind_mode', remindSelect.value);
-    });
-  }
+  if (remindSelect) remindSelect.value = 'none';
 
   function resizeMessageInput() {
     if (messageInput.tagName !== 'TEXTAREA') return;
@@ -554,6 +548,7 @@
       insertData.remind_mode = remindSelect ? remindSelect.value : 'none';
       const { error: insErr } = await supabase.from('messages').insert(insertData);
       if (insErr) throw insErr;
+      if (remindSelect) remindSelect.value = 'none';
       removeTempBubble(tempId);
     } catch (err) {
       console.error('Lỗi gửi ảnh:', err);
@@ -629,6 +624,7 @@
     });
     
     btnSend.disabled = false;
+    if (!error && remindSelect) remindSelect.value = 'none';
     messageInput.focus();
     if (error) { console.error('Lỗi gửi:', error); alert('Không gửi được tin nhắn: ' + error.message); }
   }
