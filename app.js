@@ -80,7 +80,8 @@
   let inputFocusPending = false;
   let keyboardBottomTimer = null;
   let pinkKeyboardOpen = false;
-  let nativeKeyboardMode = false;
+  let nativeKeyboardMode = true;
+  document.body.classList.add('native-keyboard-mode');
   let keyboardTab = 'letters';
   let keyboardPreviousTab = 'letters';
   let keyboardEmojiCategory = 'recent';
@@ -187,6 +188,14 @@
     messageInput.setAttribute('inputmode', 'none');
     openPinkKeyboard();
     try { messageInput.focus({ preventScroll: true }); } catch { messageInput.focus(); }
+  }
+
+  function resetToNativeKeyboard() {
+    if (nativeKeyboardMode && !pinkKeyboardOpen) return;
+    closePinkKeyboard();
+    nativeKeyboardMode = true;
+    document.body.classList.add('native-keyboard-mode');
+    messageInput.removeAttribute('inputmode');
   }
 
   function emitComposerInput(inputType = 'insertText', data = null) {
@@ -626,8 +635,6 @@
     const keepPinkKeyboard = event.target.closest?.('#kb, .chat-input-bar, #cover-menu, #attach-menu, #sticker-panel, #reply-bar');
     if (pinkKeyboardOpen && !keepPinkKeyboard) closePinkKeyboard();
     if (nativeKeyboardMode && !event.target.closest?.('.chat-input-bar')) {
-      nativeKeyboardMode = false;
-      document.body.classList.remove('native-keyboard-mode');
       messageInput.blur();
     }
   }, true);
@@ -2535,6 +2542,7 @@
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && currentUser) {
+      resetToNativeKeyboard();
       syncMessages();
       markRead();
       checkNotificationStatus();
@@ -2544,7 +2552,7 @@
       sendStopTyping();
     }
   });
-  window.addEventListener('pageshow', () => { if (currentUser) { syncMessages(); markRead(); checkNotificationStatus(); ensurePush(); refreshCoverFromServer(); } });
+  window.addEventListener('pageshow', () => { resetToNativeKeyboard(); if (currentUser) { syncMessages(); markRead(); checkNotificationStatus(); ensurePush(); refreshCoverFromServer(); } });
   window.addEventListener('focus', () => { if (currentUser) { syncMessages(); markRead(); } });
   setInterval(() => {
     if (document.visibilityState === 'visible') ensurePush();
@@ -2556,6 +2564,7 @@
       currentUser = user;
       authScreen.classList.remove('active');
       chatScreen.classList.add('active');
+      resetToNativeKeyboard();
       requestAnimationFrame(fitViewport);
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
