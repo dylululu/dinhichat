@@ -152,7 +152,7 @@
 
     /* Chat Screen */
     #app {
-      background: #fff7fa;
+      background: transparent;
       height: 100%;
       position: relative;
     }
@@ -287,8 +287,12 @@
 
     /* Messages area */
     #chat-cover {
-      position: absolute;
-      inset: 0;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
+      height: 100lvh;
       z-index: 0;
       pointer-events: none;
       background-color: #fff0f6;
@@ -299,6 +303,8 @@
     #chat-cover.has-cover {
       background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
     }
+    #auth-screen { z-index: 2; }
+    #app { z-index: 1; background: transparent; }
     .chat-header, .chat-messages, .chat-input-bar { position: relative; z-index: 1; }
     .chat-messages {
       flex: 1;
@@ -1078,9 +1084,10 @@
     </div>
   </div>
 
+  <div id="chat-cover" aria-hidden="true"></div>
+
   <!-- Chat Screen -->
   <div id="app" class="screen">
-    <div id="chat-cover" aria-hidden="true"></div>
     <header class="chat-header">
       <div class="header-user-info">
         <div class="header-avatar" id="current-user-avatar">DN</div>

@@ -56,6 +56,20 @@
   let fitViewportFrame = null;
   let lastViewportHeight = null;
   let lastViewportTop = null;
+  let messagesNearBottom = true;
+  let inputFocusPending = false;
+  let keyboardBottomTimer = null;
+
+  function scrollMessagesAfterKeyboard(shouldFollow) {
+    if (!shouldFollow) return;
+    const scrollToBottom = () => {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      messagesNearBottom = true;
+    };
+    requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
+    clearTimeout(keyboardBottomTimer);
+    keyboardBottomTimer = setTimeout(scrollToBottom, 350);
+  }
 
   function fitViewport() {
     const viewport = window.visualViewport;
@@ -79,7 +93,9 @@
       if (document.body.classList.contains('kb') !== keyboardOpen) {
         document.body.classList.toggle('kb', keyboardOpen);
       }
-      if (keyboardOpen) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      if (keyboardOpen || inputFocusPending) {
+        scrollMessagesAfterKeyboard(messagesNearBottom || inputFocusPending);
+      }
     });
   }
 
@@ -90,8 +106,15 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', fitViewport);
     window.addEventListener('orientationchange', () => window.setTimeout(fitViewport, 300));
-    messageInput.addEventListener('focusin', scheduleFitViewport);
-    messageInput.addEventListener('focusout', scheduleFitViewport);
+    messageInput.addEventListener('focusin', () => {
+      inputFocusPending = true;
+      scheduleFitViewport();
+      setTimeout(() => { inputFocusPending = false; }, 800);
+    });
+    messageInput.addEventListener('focusout', () => {
+      inputFocusPending = false;
+      scheduleFitViewport();
+    });
     fitViewport();
   }
 
@@ -456,7 +479,11 @@
   function scrollToOriginalMessage(id) {
     const row = document.getElementById('msg-' + id);
     if (!row) return;
-    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const listRect = messagesContainer.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const targetTop = messagesContainer.scrollTop + rowRect.top - listRect.top -
+      (messagesContainer.clientHeight - rowRect.height) / 2;
+    messagesContainer.scrollTo({ top: targetTop, behavior: 'smooth' });
     row.classList.add('reply-flash');
     setTimeout(() => row.classList.remove('reply-flash'), 1000);
   }
@@ -656,7 +683,6 @@
     return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 150;
   }
 
-  let messagesNearBottom = true;
   function followMessagesAfterResize(shouldFollow = messagesNearBottom) {
     if (!shouldFollow) return;
     requestAnimationFrame(() => {
@@ -668,7 +694,7 @@
     messagesNearBottom = nearMessagesBottom();
   }, { passive: true });
   if ('ResizeObserver' in window) {
-    const messagesResizeObserver = new ResizeObserver(() => followMessagesAfterResize());
+    const messagesResizeObserver = new ResizeObserver(() => followMessagesAfterResize(messagesNearBottom || inputFocusPending));
     messagesResizeObserver.observe(messagesContainer);
   }
 
