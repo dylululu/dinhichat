@@ -650,6 +650,52 @@
     keyboardBottomTimer = setTimeout(scrollToBottom, 350);
   }
 
+  // Debounce viewport: 1 RAF/khung hình, chỉ áp dụng khi bắt đầu trượt (1 lần)
+  // và khi ổn định 120ms (1 lần trailing); bỏ qua thay đổi < 2px.
+  window.__fitStats = { runs: 0, vvhChanges: 0 };
+  let viewportSettleTimer = null;
+  let viewportAnimating = false;
+
+  function applyViewportMetrics(force) {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const height = Math.round(viewport.height);
+    const top = Math.round(viewport.offsetTop);
+    const rootStyle = document.documentElement.style;
+    window.__fitStats.runs++;
+    if (force || lastViewportHeight === null || Math.abs(height - lastViewportHeight) >= 2) {
+      if (height !== lastViewportHeight) {
+        rootStyle.setProperty('--vvh', `${height}px`);
+        lastViewportHeight = height;
+        window.__fitStats.vvhChanges++;
+      }
+    }
+    if (top > 1) {
+      rootStyle.setProperty('--vvt', `${top}px`);
+      document.documentElement.classList.remove('vt-none');
+    } else {
+      rootStyle.setProperty('--vvt', '0px');
+      document.documentElement.classList.add('vt-none');
+    }
+    lastViewportTop = top;
+    if (window.pageYOffset !== 0) requestAnimationFrame(() => window.scrollTo(0, 0));
+    const keyboardOpen = window.innerHeight - height > 120;
+    if (document.body.classList.contains('kb') !== keyboardOpen) {
+      document.body.classList.toggle('kb', keyboardOpen);
+    }
+  }
+
+  function settleViewport() {
+    viewportAnimating = false;
+    if (!pinkKeyboardOpen) applyViewportMetrics(true);
+    // Cuộn #list đúng 1 lần sau khi chiều cao ổn định, không smooth.
+    if (messagesNearBottom || inputFocusPending) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      messagesNearBottom = true;
+    }
+    inputFocusPending = false;
+  }
+
   function fitViewport() {
     if (pinkKeyboardOpen) {
       document.documentElement.style.setProperty('--vvh', '100dvh');
@@ -657,35 +703,26 @@
       document.body.classList.remove('kb');
       return;
     }
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    if (fitViewportFrame !== null) window.cancelAnimationFrame(fitViewportFrame);
+    if (!window.visualViewport) return;
+    if (fitViewportFrame !== null) return; // đã có 1 RAF đang chờ
     fitViewportFrame = window.requestAnimationFrame(() => {
       fitViewportFrame = null;
-      const height = Math.round(viewport.height);
-      const top = Math.round(viewport.offsetTop);
-      const rootStyle = document.documentElement.style;
-      if (height !== lastViewportHeight) {
-        rootStyle.setProperty('--vvh', `${height}px`);
-        lastViewportHeight = height;
+      if (pinkKeyboardOpen) return;
+      // Lúc đang trượt: KHÔNG đổi --vvh/--vvt theo từng bước, chỉ giữ timer.
+      if (viewportAnimating) {
+        clearTimeout(viewportSettleTimer);
+        viewportSettleTimer = window.setTimeout(settleViewport, 120);
+        return;
       }
-      if (top !== lastViewportTop) {
-        rootStyle.setProperty('--vvt', `${top}px`);
-        lastViewportTop = top;
-      }
-      if (window.pageYOffset !== 0) window.scrollTo(0, 0);
-      const keyboardOpen = window.innerHeight - height > 120;
-      if (document.body.classList.contains('kb') !== keyboardOpen) {
-        document.body.classList.toggle('kb', keyboardOpen);
-      }
-      if (keyboardOpen || inputFocusPending) {
-        scrollMessagesAfterKeyboard(messagesNearBottom || inputFocusPending);
-      }
+      applyViewportMetrics(true);
+      viewportAnimating = true;
+      clearTimeout(viewportSettleTimer);
+      viewportSettleTimer = window.setTimeout(settleViewport, 120);
     });
   }
 
   function scheduleFitViewport() {
-    [50, 350].forEach((delay) => window.setTimeout(fitViewport, delay));
+    fitViewport();
   }
 
   messageInput.addEventListener('focusin', () => {

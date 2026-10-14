@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover cố định 100lvh+120px; #list contain layout + overflow-anchor none; typing indicator/thanh trả lời absolute.
-- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + visualViewport, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
+- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover cố định 100lvh+120px, không parallax khi bàn phím iOS; #app contain layout paint, #list contain layout paint style + overflow-anchor none; typing indicator/thanh trả lời absolute.
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + debounce trailing 120ms + __fitStats, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -46,10 +46,11 @@
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.
 - Chống giật khung tin nhắn khi gõ #kb: ô nhập giãn bằng mirror textarea (chỉ ghi height khi số dòng đổi, gom RAF, không 'auto'), #list chỉ cuộn khi height thật sự đổi/nearBottom, ResizeObserver so lastH, typing indicator + thanh trả lời absolute, #kb/#list contain layout, overflow-anchor none.
+- Chống giật khung hình khi bàn phím iOS trượt: fitViewport gom 1 RAF + debounce trailing 120ms (chỉ đổi --vvh lúc bắt đầu và lúc ổn định, bỏ qua <2px, --vvt dùng class vt-none khi offsetTop=0); #app contain layout paint + transition none, #list contain layout paint style, header/thanh nhập contain layout; cuộn #list 1 lần sau khi ổn định; bàn phím iOS: #kb display:none, #cover không parallax/transition; không autofocus.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
 
 ## Đang làm / Dở dang
-- Bạn làm tay: `npx serve .` thử chế độ điện thoại, tự git push, xóa icon iPhone rồi thêm lại.
+- Bạn làm tay: thử trên iPhone thật, tự git push, xóa icon iPhone rồi thêm lại.
 
 ## Lỗi đã biết / Lưu ý
 - Kết nối trực tiếp DB bị chặn pass; chạy migration qua Supabase Management Query API.

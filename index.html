@@ -306,6 +306,12 @@
     #chat-cover.has-cover {
       background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
     }
+    /* Bàn phím iOS: cover đứng yên, không parallax, không transition layer. */
+    body.native-keyboard-mode #chat-cover, body:not(.pink-kb-open) #chat-cover {
+      transform: none;
+      transition: none;
+      will-change: auto;
+    }
     #auth-screen { z-index: 2; }
     #app { z-index: 1; background: transparent; }
     .chat-header { position: relative; z-index: 10; }
@@ -461,6 +467,8 @@
       overflow: hidden;
     }
     #auth-screen.active, #app.active { display: flex; flex-direction: column; }
+    #app { contain: layout paint; transition: none; }
+    html.vt-none #auth-screen, html.vt-none #app { transform: none; }
     #auth-screen {
       padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
         max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
@@ -471,6 +479,7 @@
       min-height: calc(52px + env(safe-area-inset-top));
       padding: calc(env(safe-area-inset-top) + 8px) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
       gap: 8px;
+      contain: layout;
     }
     body.kb .cover-menu { max-height: 40dvh; overflow-y: auto; }
     .cover-toast {
@@ -504,12 +513,13 @@
       overflow-y: auto;
       overflow-x: hidden;
       overflow-anchor: none;
-      contain: layout;
+      contain: layout paint style;
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       padding-left: max(10px, env(safe-area-inset-left));
       padding-right: max(10px, env(safe-area-inset-right));
     }
+    body.kb .chat-messages { will-change: scroll-position; }
     .message-row { max-width: 78%; min-width: 0; }
     .message-bubble, .w .b {
       max-width: 100%;
@@ -533,7 +543,10 @@
       padding: 8px max(10px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 8px) max(10px, env(safe-area-inset-left));
       flex-wrap: wrap;
       max-width: 100vw;
+      contain: layout;
     }
+    /* Bàn phím iOS: ẩn hẳn #kb, không chiếm layout. */
+    body.native-keyboard-mode #kb { display: none; }
     .chat-input { flex: 1 1 60px; min-width: 0; font-size: 16px; max-height: 120px; }
     .btn-attach, .btn-send { min-width: 40px; min-height: 40px; padding: 8px; display: inline-flex; align-items: center; justify-content: center; }
     .remind-select { max-width: min(112px, 28vw); }
