@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover cố định 100lvh+120px.
-- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + visualViewport, resizeMessageInput, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
+- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover cố định 100lvh+120px; #list contain layout + overflow-anchor none; typing indicator/thanh trả lời absolute.
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + visualViewport, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -45,6 +45,7 @@
 - Vuốt phải tin nhắn để trả lời; resolve reply_to thành ID số khi gửi, chặn tin còn tmp-, đồng bộ ID ở DOM/Map/cache và hiện lý do nếu gửi lỗi.
 - Sticker PNG nền trong suốt: khay dùng chung, thêm bằng file/dán ảnh, gửi, xóa khỏi khay và hiển thị trong chat.
 - Ảnh bìa có màn crop kéo/zoom/xoay trước khi lưu; #chat-cover cố định 100lvh, preview tức thì, đồng bộ realtime; menu/input iOS hoạt động và keyboard cuộn list cuối.
+- Chống giật khung tin nhắn khi gõ #kb: ô nhập giãn bằng mirror textarea (chỉ ghi height khi số dòng đổi, gom RAF, không 'auto'), #list chỉ cuộn khi height thật sự đổi/nearBottom, ResizeObserver so lastH, typing indicator + thanh trả lời absolute, #kb/#list contain layout, overflow-anchor none.
 - Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
 
 ## Đang làm / Dở dang

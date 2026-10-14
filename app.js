@@ -203,9 +203,9 @@
     catch { messageInput.dispatchEvent(new Event('input', { bubbles: true })); }
   }
 
-  function replaceComposerRange(start, end, text, caret = start + text.length) {
-    messageInput.setRangeText(text, start, end, 'preserve');
-    messageInput.setSelectionRange(caret, caret);
+  function replaceComposerRange(start, end, text) {
+    // 'end' đặt caret sau ký tự chèn, không cần setSelectionRange riêng.
+    messageInput.setRangeText(text, start, end, 'end');
   }
 
   const toneFamilies = {
@@ -1188,13 +1188,56 @@
     });
   }
 
+  // Mirror textarea: đo số dòng ô nhập thật mà không ép layout ô nhập.
+  const inputMirror = document.createElement('textarea');
+  inputMirror.rows = 1;
+  inputMirror.setAttribute('aria-hidden', 'true');
+  inputMirror.setAttribute('readonly', '');
+  inputMirror.tabIndex = -1;
+  inputMirror.autocomplete = 'off';
+  inputMirror.style.cssText = 'position:absolute;top:0;left:-9999px;visibility:hidden;pointer-events:none;resize:none;overflow:hidden;box-sizing:border-box;white-space:pre-wrap;word-wrap:break-word;';
+  document.body.appendChild(inputMirror);
+  let lastAppliedInputHeight = 0;
+  let lastAppliedInputOverflow = 'hidden';
+
+  function updateInputMirrorMetrics() {
+    const rect = messageInput.getBoundingClientRect();
+    const widthPx = Math.round(rect.width);
+    const cs = window.getComputedStyle(messageInput);
+    inputMirror.style.width = widthPx + 'px';
+    inputMirror.style.fontSize = cs.fontSize;
+    inputMirror.style.fontWeight = cs.fontWeight;
+    inputMirror.style.fontFamily = cs.fontFamily;
+    inputMirror.style.fontStyle = cs.fontStyle;
+    inputMirror.style.lineHeight = cs.lineHeight;
+    inputMirror.style.letterSpacing = cs.letterSpacing;
+    inputMirror.style.paddingTop = cs.paddingTop;
+    inputMirror.style.paddingRight = cs.paddingRight;
+    inputMirror.style.paddingBottom = cs.paddingBottom;
+    inputMirror.style.paddingLeft = cs.paddingLeft;
+    inputMirror.style.borderTopWidth = cs.borderTopWidth;
+    inputMirror.style.borderRightWidth = cs.borderRightWidth;
+    inputMirror.style.borderBottomWidth = cs.borderBottomWidth;
+    inputMirror.style.borderLeftWidth = cs.borderLeftWidth;
+  }
+  updateInputMirrorMetrics();
+  if ('ResizeObserver' in window) new ResizeObserver(updateInputMirrorMetrics).observe(messageInput);
+  window.addEventListener('resize', updateInputMirrorMetrics);
+  window.addEventListener('orientationchange', () => setTimeout(updateInputMirrorMetrics, 300));
+
   function resizeMessageInput(shouldFollow = messagesNearBottom) {
     if (messageInput.tagName !== 'TEXTAREA') return;
-    messageInput.style.height = 'auto';
-    const contentHeight = messageInput.scrollHeight;
-    const height = Math.max(40, Math.min(contentHeight, 120));
-    messageInput.style.height = height + 'px';
-    messageInput.style.overflowY = contentHeight > 120 ? 'auto' : 'hidden';
+    inputMirror.value = messageInput.value;
+    const contentHeight = inputMirror.scrollHeight;
+    const nextHeight = Math.max(40, Math.min(contentHeight, 120));
+    const nextOverflow = contentHeight > 120 ? 'auto' : 'hidden';
+    const roundedHeight = Math.round(nextHeight);
+    // Chỉ ghi height thật khi số dòng đổi; không đặt 'auto', không cuộn #list vô cớ.
+    if (roundedHeight === lastAppliedInputHeight && nextOverflow === lastAppliedInputOverflow) return;
+    lastAppliedInputHeight = roundedHeight;
+    lastAppliedInputOverflow = nextOverflow;
+    messageInput.style.height = roundedHeight + 'px';
+    messageInput.style.overflowY = nextOverflow;
     followMessagesAfterResize(shouldFollow);
   }
 
@@ -1497,8 +1540,14 @@
   messagesContainer.addEventListener('scroll', () => {
     messagesNearBottom = nearMessagesBottom();
   }, { passive: true });
+  let lastMessagesHeightObserved = Math.round(messagesContainer.getBoundingClientRect().height);
   if ('ResizeObserver' in window) {
-    const messagesResizeObserver = new ResizeObserver(() => followMessagesAfterResize(messagesNearBottom || inputFocusPending));
+    const messagesResizeObserver = new ResizeObserver((entries) => {
+      const height = Math.round(entries[0]?.contentRect?.height ?? 0);
+      if (height === lastMessagesHeightObserved) return;
+      lastMessagesHeightObserved = height;
+      followMessagesAfterResize(messagesNearBottom || inputFocusPending);
+    });
     messagesResizeObserver.observe(messagesContainer);
   }
 
@@ -2150,7 +2199,7 @@
     if (!typingIndicator) return;
     const name = profilesMap.get(senderId)?.name || 'Iu dấu';
     typingIndicator.textContent = '💕 ' + name + ' đang nhập...';
-    typingIndicator.style.display = 'block';
+    typingIndicator.classList.add('visible');
     clearTimeout(typingTimer);
     typingTimer = setTimeout(hideTyping, 4000);
   }
@@ -2159,7 +2208,7 @@
     clearTimeout(typingTimer);
     if (!typingIndicator) return;
     typingIndicator.textContent = '';
-    typingIndicator.style.display = 'none';
+    typingIndicator.classList.remove('visible');
   }
 
   function sendTyping() {
@@ -2717,8 +2766,9 @@
       composerInputFramePending = false;
       resizeMessageInput();
       updateSendButtonVisibility();
-      sendTyping();
     });
+    // Việc phụ (gõ "đang nhập") tách khỏi RAF đường gõ.
+    setTimeout(sendTyping, 0);
   });
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
