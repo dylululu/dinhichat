@@ -629,6 +629,7 @@
   customKeyboardHide?.addEventListener('pointerdown', (event) => { event.preventDefault(); closePinkKeyboard(); });
   customKeyboardToggle?.addEventListener('pointerdown', (event) => {
     event.preventDefault();
+    closeFuncPanel();
     if (nativeKeyboardMode) usePinkKeyboard(); else useNativeKeyboard();
   });
   document.addEventListener('pointerdown', (event) => {
@@ -1201,6 +1202,8 @@
       remindBadge.textContent = mode === '2' ? '2' : '';
       remindBadge.hidden = mode !== '2';
     }
+    // Chấm nhỏ trên nút ➕ khi nhắc đang bật.
+    document.getElementById('btn-attach')?.classList.toggle('has-remind', mode !== 'none');
   }
 
   function showRemindToast(mode) {
@@ -2543,16 +2546,29 @@
     if (replyToId) clearReply();
   }
 
-  // ─── Attach menu ─────────────────────────────────────────────────────────────
+  // ─── Bảng chức năng (nút ➕) ─────────────────────────────────────────────────
+  function closeFuncPanel() {
+    attachMenu?.classList.remove('open');
+    btnAttach?.classList.remove('opened');
+    btnAttach?.setAttribute('aria-expanded', 'false');
+  }
   if (btnAttach && attachMenu) {
-    btnAttach.addEventListener('click', (e) => { e.stopPropagation(); attachMenu.classList.toggle('open'); });
-    document.addEventListener('click', () => attachMenu.classList.remove('open'));
+    // pointerdown preventDefault: bấm ➕ không làm mất focus/caret ô nhập.
+    btnAttach.addEventListener('pointerdown', (e) => e.preventDefault());
+    btnAttach.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = !attachMenu.classList.contains('open');
+      attachMenu.classList.toggle('open', open);
+      btnAttach.classList.toggle('opened', open);
+      btnAttach.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', closeFuncPanel);
     attachMenu.addEventListener('click', (e) => e.stopPropagation());
   }
   if (btnSticker && stickerPanel && stickerGrid && fileSticker) {
     btnSticker.addEventListener('click', async (event) => {
       event.stopPropagation();
-      if (attachMenu) attachMenu.classList.remove('open');
+      closeFuncPanel();
       const open = !stickerPanel.classList.contains('open');
       if (open) closePinkKeyboard();
       stickerPanel.classList.toggle('open', open);
@@ -2575,11 +2591,11 @@
     });
   }
   if (btnCamera && fileCamera) {
-    btnCamera.addEventListener('click', () => { if (attachMenu) attachMenu.classList.remove('open'); fileCamera.value = ''; fileCamera.click(); });
+    btnCamera.addEventListener('click', () => { closeFuncPanel(); fileCamera.value = ''; fileCamera.click(); });
     fileCamera.addEventListener('change', () => handleFiles(fileCamera.files));
   }
   if (btnGallery && fileGallery) {
-    btnGallery.addEventListener('click', () => { if (attachMenu) attachMenu.classList.remove('open'); fileGallery.value = ''; fileGallery.click(); });
+    btnGallery.addEventListener('click', () => { closeFuncPanel(); fileGallery.value = ''; fileGallery.click(); });
     fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
   }
 

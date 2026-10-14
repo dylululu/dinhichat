@@ -410,8 +410,7 @@
     .kb-emoji { width: 100%; height: 44px; padding: 0; border: 0; border-radius: 8px; background: #fff; font-size: 26px; line-height: 1; }
     .kb-popover { position: absolute; left: 0; top: 0; z-index: 4; width: 52px; height: 58px; border-radius: 14px; background: #fff; color: #33252b; box-shadow: 0 2px 12px rgba(0,0,0,.22); font-size: 34px; line-height: 58px; text-align: center; pointer-events: none; opacity: 0; contain: layout paint; will-change: transform; transform: translate3d(var(--kb-pop-x, 0px), var(--kb-pop-y, 0px), 0) translateX(-50%) scale(.9); transition: transform 70ms ease, opacity 70ms ease; }
     .kb-popover.visible { opacity: 1; transform: translate3d(var(--kb-pop-x, 0px), var(--kb-pop-y, 0px), 0) translateX(-50%) scale(1); }
-    #kb-toggle { display: none; min-width: 40px; min-height: 40px; border: 0; border-radius: 10px; background: #f8bbd0; font-size: 18px; }
-    body.native-keyboard-mode #kb-toggle { display: inline-flex; align-items: center; justify-content: center; }
+    #kb-toggle { min-width: 40px; min-height: 40px; border: 0; border-radius: 10px; background: transparent; font-size: 18px; }
     @media (prefers-color-scheme: dark) {
       #kb { background: #3a1d2a; color: #fff; }
       #kb .kb-hide { background: #3a1d2a; color: #fff; }
@@ -425,6 +424,10 @@
       .kb-emoji { background: #5a2d40; color: #fff; }
       .kb-popover { background: #5a2d40; color: #fff; }
       .kb-grip { background: #a96a83; }
+      .attach-menu { background: #3a1d2a; }
+      .func-item:active { background: #5a2d40; }
+      .func-label { color: #f3d9e4; }
+      .remind-icon { background: #5a2d40; }
     }
     @media (max-width: 360px) {
       .kb-rows { padding-left: 4px; padding-right: 4px; }
@@ -1082,26 +1085,8 @@
       border-color: var(--primary-color);
     }
 
-    .remind-select {
-      flex-shrink: 0;
-      width: 40px;
-      height: 40px;
-      max-width: 40px;
-      padding: 4px;
-      border: 0;
-      border-radius: 50%;
-      font-size: 16px;
-      background: transparent;
-      color: var(--text-main);
-      outline: none;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      touch-action: manipulation;
-    }
     .remind-icon {
+      position: relative;
       width: 32px;
       height: 32px;
       display: grid;
@@ -1167,36 +1152,70 @@
       line-height: 1;
     }
 
-    /* Attach menu */
+    /* Bảng chức năng (mở từ nút ➕) */
     .attach-menu {
       display: none;
       position: absolute;
       bottom: calc(100% + 6px);
-      left: 14px;
-      background: #fff0f6;
+      left: max(8px, env(safe-area-inset-left));
+      right: max(8px, env(safe-area-inset-right));
+      background: #fce4ec;
       border-radius: 14px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
-      overflow: hidden;
       z-index: 10;
-      flex-direction: column;
-      min-width: 160px;
+      grid-template-columns: repeat(4, minmax(64px, 1fr));
+      gap: 6px;
+      padding: 10px;
+      max-height: min(40dvh, 280px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      transform-origin: bottom left;
     }
 
     .attach-menu.open {
+      display: grid;
+      animation: func-panel-in 160ms ease;
+    }
+
+    @keyframes func-panel-in {
+      from { opacity: 0; transform: scale(.92); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .func-item {
       display: flex;
-    }
-
-    .attach-menu-item {
-      padding: 12px 16px;
-      font-size: 15px;
-      cursor: pointer;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      min-width: 64px;
+      min-height: 64px;
+      padding: 6px 4px;
+      border: 0;
+      border-radius: 14px;
       background: transparent;
-      border: none;
-      text-align: left;
+      cursor: pointer;
+      touch-action: manipulation;
     }
 
-    .attach-menu-item:active {
-      background: #ffe0ec;
+    .func-item:active { background: #ffe0ec; }
+
+    .func-icon { font-size: 28px; line-height: 1; position: relative; }
+
+    .func-label { font-size: 11px; color: #666; line-height: 1.2; }
+
+    /* Nút ➕ xoay 45° khi mở, chấm hồng khi chế độ nhắc đang bật */
+    .btn-add { transition: transform 160ms ease; position: relative; }
+    .btn-add.opened { transform: rotate(45deg); }
+    .btn-add.has-remind::after {
+      content: '';
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #e91e63;
     }
 
     .w {
@@ -1356,27 +1375,35 @@
         <div id="reply-bar-text" class="reply-bar-text"></div>
         <button id="reply-cancel" class="reply-cancel" type="button" aria-label="Hủy trả lời">✕</button>
       </div>
-      <!-- Attach menu -->
-      <div id="attach-menu" class="attach-menu">
-        <button class="attach-menu-item" id="btn-camera">📷 Chụp ảnh</button>
-        <button class="attach-menu-item" id="btn-gallery">🖼️ Thư viện</button>
-      </div>
-      <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
-        <div id="sticker-grid" class="sticker-grid"></div>
-      </div>
       <!-- Hidden file inputs -->
       <input type="file" id="file-camera" accept="image/*" capture="environment" style="display:none">
       <input type="file" id="file-gallery" accept="image/*" multiple style="display:none">
       <input type="file" id="file-sticker" accept="image/png,image/webp,image/*" multiple style="display:none">
 
-      <button id="btn-attach" class="btn-attach" type="button">📎</button>
-      <button id="btn-sticker" class="btn-attach" type="button" aria-label="Mở sticker">🎟️</button>
-      <button id="kb-toggle" type="button" aria-label="Chuyển bàn phím">🌐</button>
+      <!-- Bảng chức năng mở ra từ nút ➕, nằm trên thanh nhập, không đổi layout -->
+      <div id="attach-menu" class="attach-menu" role="menu" aria-label="Chức năng">
+        <button class="func-item" id="btn-camera" type="button" role="menuitem">
+          <span class="func-icon" aria-hidden="true">📷</span><span class="func-label">Chụp ảnh</span>
+        </button>
+        <button class="func-item" id="btn-gallery" type="button" role="menuitem">
+          <span class="func-icon" aria-hidden="true">🖼️</span><span class="func-label">Thư viện</span>
+        </button>
+        <button class="func-item" id="btn-sticker" type="button" role="menuitem">
+          <span class="func-icon" aria-hidden="true">🎟️</span><span class="func-label">Sticker</span>
+        </button>
+        <button class="func-item" id="remind-select" type="button" role="menuitem" value="none" aria-label="Không nhắc" title="Không nhắc">
+          <span class="func-icon" aria-hidden="true"><span id="remind-icon" class="remind-icon">🔕</span><span id="remind-badge" class="remind-badge" hidden>2</span></span><span class="func-label">Nhắc</span>
+        </button>
+        <button class="func-item" id="kb-toggle" type="button" role="menuitem" aria-label="Đổi bàn phím">
+          <span class="func-icon" aria-hidden="true">⌨️</span><span class="func-label">Bàn phím</span>
+        </button>
+      </div>
+      <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
+        <div id="sticker-grid" class="sticker-grid"></div>
+      </div>
+
+      <button id="btn-attach" class="btn-attach btn-add" type="button" aria-label="Thêm chức năng" aria-expanded="false">➕</button>
       <textarea id="message-input" class="chat-input" placeholder="Nhập tin nhắn..." autocomplete="off" rows="1"></textarea>
-      <button id="remind-select" class="remind-select" type="button" value="none" aria-label="Không nhắc" title="Không nhắc">
-        <span id="remind-icon" class="remind-icon" aria-hidden="true">🔕</span>
-        <span id="remind-badge" class="remind-badge" aria-hidden="true" hidden>2</span>
-      </button>
       <button id="btn-send" class="btn-send">Gửi</button>
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
