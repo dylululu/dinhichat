@@ -287,30 +287,28 @@
     }
 
     /* Messages area */
+    /* Ảnh bìa độc lập: fixed top:0, không theo --vvt/--vvh, nằm sau #app. */
     #chat-cover {
       position: fixed;
       top: 0;
       left: 0;
       width: 100%;
-      height: calc(100vh + 120px);
-      height: calc(100lvh + 120px);
+      height: 100vh;
+      height: 100lvh;
       z-index: 0;
       pointer-events: none;
       background-color: #fff0f6;
       background-position: center;
       background-size: cover;
       background-repeat: no-repeat;
-      transform: translateY(var(--cover-shift, 0px));
-      transition: transform 220ms cubic-bezier(.2,.8,.2,1);
     }
     #chat-cover.has-cover {
       background-image: linear-gradient(rgba(255, 225, 237, .42), rgba(255, 225, 237, .42)), var(--chat-cover-image);
     }
-    /* Bàn phím iOS: cover đứng yên, không parallax, không transition layer. */
-    body.native-keyboard-mode #chat-cover, body:not(.pink-kb-open) #chat-cover {
-      transform: none;
-      transition: none;
-      will-change: auto;
+    /* Chỉ bàn phím hồng mới vuốt nhẹ ảnh bìa; bàn phím iOS: đứng yên. */
+    body.pink-kb-open #chat-cover {
+      transform: translateY(var(--cover-shift, 0px));
+      transition: transform 220ms cubic-bezier(.2,.8,.2,1);
     }
     #auth-screen { z-index: 2; }
     #app { z-index: 1; background: transparent; }
@@ -443,11 +441,14 @@
 
     /* iPhone viewport, safe areas and compact layouts */
     html, body {
+      position: fixed;
+      inset: 0;
       width: 100%;
       height: 100%;
       margin: 0;
       overflow: hidden;
       overscroll-behavior: none;
+      background: #fce4ec;
       -webkit-text-size-adjust: 100%;
       touch-action: manipulation;
     }
@@ -456,19 +457,17 @@
     .screen { height: 100%; height: 100dvh; }
     #auth-screen, #app {
       position: fixed;
-      top: 0;
+      top: var(--vvt, 0px);
       left: 0;
       right: 0;
       bottom: auto;
       width: 100%;
       max-width: none;
-      height: var(--vvh, 100%);
-      transform: translateY(var(--vvt, 0px));
+      height: var(--vvh, 100dvh);
       overflow: hidden;
     }
     #auth-screen.active, #app.active { display: flex; flex-direction: column; }
     #app { contain: layout paint; transition: none; }
-    html.vt-none #auth-screen, html.vt-none #app { transform: none; }
     #auth-screen {
       padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
         max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));

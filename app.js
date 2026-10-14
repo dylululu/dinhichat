@@ -670,15 +670,13 @@
         window.__fitStats.vvhChanges++;
       }
     }
-    if (top > 1) {
-      rootStyle.setProperty('--vvt', `${top}px`);
-      document.documentElement.classList.remove('vt-none');
-    } else {
-      rootStyle.setProperty('--vvt', '0px');
-      document.documentElement.classList.add('vt-none');
-    }
+    // #app đặt theo top = offsetTop (không transform); offsetTop=0 → top:0.
+    rootStyle.setProperty('--vvt', top > 0 ? `${top}px` : '0px');
     lastViewportTop = top;
-    if (window.pageYOffset !== 0) requestAnimationFrame(() => window.scrollTo(0, 0));
+    // Chặn iOS cuộn trang: chỉ scrollTo khi thật sự lệch, bọc trong rAF.
+    if (window.pageYOffset !== 0 || document.documentElement.scrollTop !== 0) {
+      requestAnimationFrame(() => window.scrollTo(0, 0));
+    }
     const keyboardOpen = window.innerHeight - height > 120;
     if (document.body.classList.contains('kb') !== keyboardOpen) {
       document.body.classList.toggle('kb', keyboardOpen);
@@ -733,6 +731,7 @@
   });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', fitViewport);
+    window.visualViewport.addEventListener('scroll', fitViewport); // iOS cuộn trang khi mở bàn phím
     window.addEventListener('orientationchange', () => window.setTimeout(fitViewport, 300));
     messageInput.addEventListener('focusin', () => {
       if (!nativeKeyboardMode) return;
