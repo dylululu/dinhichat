@@ -2530,6 +2530,8 @@
 
   let currentReactionMessageId = null;
   let currentReactionMessage = null;
+  let reactionBarArmed = false;
+  let reactionBarArmTimer = null;
 
   function openReactionBar(row, message) {
     if (!message || !currentUser) return;
@@ -2539,6 +2541,18 @@
     currentReactionMessage = message;
     copyBtn.style.display = message.content ? '' : 'none';
     reactionBar.classList.add('open');
+    // Cờ armed: 450ms đầu thanh "bất khả xâm phạm" — thả tay/click ma không đóng.
+    reactionBarArmed = false;
+    clearTimeout(reactionBarArmTimer);
+    reactionBarArmTimer = setTimeout(() => { reactionBarArmed = true; }, 450);
+    // Chặn sự kiện thả tay của chính lần nhấn giữ này.
+    const swallowRelease = (event) => { event.preventDefault(); };
+    document.addEventListener('touchend', swallowRelease, { once: true, capture: true, passive: false });
+    document.addEventListener('pointerup', swallowRelease, { once: true, capture: true, passive: false });
+    // Chặn click ma trong 500ms đầu.
+    const swallowClick = (event) => { event.preventDefault(); event.stopPropagation(); };
+    document.addEventListener('click', swallowClick, { once: true, capture: true });
+    setTimeout(() => { /* hết cửa sổ click ma */ }, 500);
     const rowRect = row.getBoundingClientRect();
     const appRect = appRoot?.getBoundingClientRect();
     if (!appRect) return;
@@ -2554,13 +2568,44 @@
     reactionBar.classList.remove('open');
     currentReactionMessageId = null;
     currentReactionMessage = null;
+    reactionBarArmed = false;
+    clearTimeout(reactionBarArmTimer);
   }
 
+  // Chạm RA NGOÀI thanh mới đóng (bắt ở capture, chỉ khi armed).
   document.addEventListener('pointerdown', (event) => {
-    if (!reactionBar.classList.contains('open')) return;
+    if (!reactionBar.classList.contains('open') || !reactionBarArmed) return;
     if (reactionBar.contains(event.target)) return;
     closeReactionBar();
+  }, { capture: true, passive: true });
+
+  // Chạm TRONG thanh: chặn lan để ô nhập không mất focus.
+  reactionBar.addEventListener('pointerdown', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+  }, { capture: true, passive: false });
+
+  // Esc đóng thanh.
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && reactionBar.classList.contains('open')) closeReactionBar();
+  });
+
+  // Cuộn #list quá 30px khi thanh mở → đóng (chỉ khi armed).
+  let reactionBarScrollBase = null;
+  messagesContainer.addEventListener('scroll', () => {
+    if (!reactionBar.classList.contains('open') || !reactionBarArmed) return;
+    const y = messagesContainer.scrollTop;
+    if (reactionBarScrollBase === null) { reactionBarScrollBase = y; return; }
+    if (Math.abs(y - reactionBarScrollBase) > 30) { reactionBarScrollBase = null; closeReactionBar(); }
   }, { passive: true });
+
+  // Nếu tin gốc bị gỡ khỏi DOM → đóng thanh.
+  new MutationObserver(() => {
+    if (reactionBar.classList.contains('open') && currentReactionMessageId !== null
+      && !document.getElementById('msg-' + currentReactionMessageId)) {
+      closeReactionBar();
+    }
+  }).observe(messagesContainer, { childList: true });
 
   async function pickReaction(messageId, emoji) {
     if (!currentUser || String(messageId).startsWith('tmp-')) return;
