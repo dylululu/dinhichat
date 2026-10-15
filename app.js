@@ -804,6 +804,10 @@
   const coverUrlCache = new Map();
   const profilesMap = new Map();
   const messageCache = new Map();
+  // reactions: message_id (string) -> Map(user_id -> emoji)
+  const reactions = new Map();
+  const CACHE_REACTIONS_KEY = 'dinhichat_reactions_v1';
+  const REACTION_EMOJIS = ['❤️', '😂', '😮', '🥺', '😡', '👍'];
   let stickerItems = [];
   let ensurePushPromise = null;
   let activeReply = null;
@@ -2399,10 +2403,279 @@
 
     messagesContainer.appendChild(row);
     enableSwipeReply(row, message);
+    setupRowGesture(row, message);
     if (options.animate) animateMessage(row, isSelf);
     renderSeen();
     if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
     return row;
+  }
+
+  // ─── Reactions ───────────────────────────────────────────────────────────────
+  function addReactionToStore(messageId, userId, emoji) {
+    const key = String(messageId);
+    let m = reactions.get(key);
+    if (!m) { m = new Map(); reactions.set(key, m); }
+    m.set(userId, emoji);
+  }
+
+  function removeReactionFromStore(messageId, userId) {
+    const m = reactions.get(String(messageId));
+    if (m) m.delete(userId);
+  }
+
+  function saveReactionsToCache() {
+    try {
+      const arr = [];
+      for (const [mid, m] of reactions) for (const [uid, emoji] of m) arr.push({ message_id: mid, user_id: uid, emoji });
+      localStorage.setItem(CACHE_REACTIONS_KEY, JSON.stringify(arr.slice(-300)));
+    } catch {}
+  }
+
+  function loadReactionsFromCache() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CACHE_REACTIONS_KEY) || '[]');
+      if (!Array.isArray(arr)) return;
+      for (const r of arr) {
+        if (r && r.message_id && r.user_id && r.emoji) addReactionToStore(r.message_id, r.user_id, r.emoji);
+      }
+    } catch {}
+  }
+
+  function showAppToast(text, duration = 2000) {
+    try {
+      const toast = document.createElement('div');
+      toast.className = 'app-toast';
+      toast.textContent = text;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), duration);
+    } catch {}
+  }
+
+  function renderReactionBadges(row, popEmoji = null) {
+    if (!row) return;
+    row.querySelectorAll('.reaction-badge').forEach((b) => b.remove());
+    const id = row.dataset.id || row.id.replace(/^msg-/, '');
+    const m = reactions.get(String(id));
+    row.classList.remove('has-reaction');
+    if (!m || !m.size) return;
+    let count = 0;
+    for (const [userId, emoji] of m) {
+      if (count >= 2) break; // tối đa 2 huy hiệu cạnh nhau
+      const badge = document.createElement('span');
+      badge.className = 'reaction-badge' + (emoji === popEmoji ? ' pop' : '');
+      badge.textContent = emoji;
+      badge.dataset.userId = userId;
+      row.appendChild(badge);
+      if (emoji === popEmoji && emoji === '❤️') flyHearts(row);
+      count++;
+    }
+    if (count > 0) row.classList.add('has-reaction');
+  }
+
+  function flyHearts(row) {
+    if (!row || document.hidden) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;
+    const rowRect = row.getBoundingClientRect();
+    for (let i = 0; i < 5; i++) {
+      const heart = document.createElement('span');
+      heart.className = 'heart-fly';
+      heart.textContent = '💗';
+      heart.style.left = `${12 + Math.round(Math.random() * Math.max(20, rowRect.width - 30))}px`;
+      heart.style.top = `${Math.round(rowRect.height * 0.4)}px`;
+      heart.style.animationDelay = `${i * 40}ms`;
+      row.appendChild(heart);
+      setTimeout(() => heart.remove(), 700 + i * 40);
+    }
+  }
+
+  // Thanh cảm xúc nổi trong #app, absolute → không đẩy layout.
+  const reactionBar = document.createElement('div');
+  reactionBar.id = 'reaction-bar';
+  reactionBar.className = 'reaction-bar';
+  reactionBar.setAttribute('role', 'toolbar');
+  reactionBar.setAttribute('aria-label', 'Thả cảm xúc');
+  REACTION_EMOJIS.forEach((emoji) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'reaction-btn';
+    btn.textContent = emoji;
+    btn.addEventListener('click', () => pickReaction(currentReactionMessageId, emoji));
+    reactionBar.appendChild(btn);
+  });
+  const appRoot = document.getElementById('app');
+  appRoot?.appendChild(reactionBar);
+
+  let currentReactionMessageId = null;
+
+  function openReactionBar(row, message) {
+    if (!message || !currentUser) return;
+    if (String(message.id).startsWith('tmp-') || message.sender_id === currentUser.id) return;
+    if (!messageIds.has(message.id)) return;
+    currentReactionMessageId = message.id;
+    reactionBar.classList.add('open');
+    const rowRect = row.getBoundingClientRect();
+    const appRect = appRoot?.getBoundingClientRect();
+    if (!appRect) return;
+    const barRect = reactionBar.getBoundingClientRect();
+    const spaceAbove = rowRect.top - appRect.top;
+    const below = rowRect.bottom - appRect.top + 6;
+    let top = spaceAbove >= barRect.height + 10 ? rowRect.top - appRect.top - barRect.height - 6 : below;
+    top = Math.max(6, Math.min(top, appRect.height - barRect.height - 6));
+    reactionBar.style.top = `${Math.round(top)}px`;
+  }
+
+  function closeReactionBar() {
+    reactionBar.classList.remove('open');
+    currentReactionMessageId = null;
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!reactionBar.classList.contains('open')) return;
+    if (reactionBar.contains(event.target)) return;
+    closeReactionBar();
+  }, { passive: true });
+
+  async function pickReaction(messageId, emoji) {
+    if (!currentUser || String(messageId).startsWith('tmp-')) return;
+    const key = String(messageId);
+    const row = document.getElementById('msg-' + messageId);
+    const current = reactions.get(key)?.get(currentUser.id);
+    const willDelete = current === emoji;
+    // Optimistic: cập nhật UI ngay.
+    if (willDelete) removeReactionFromStore(messageId, currentUser.id);
+    else addReactionToStore(messageId, currentUser.id, emoji);
+    renderReactionBadges(row, emoji);
+    saveReactionsToCache();
+    closeReactionBar();
+    try {
+      if (willDelete) {
+        await supabase.from('reactions')
+          .delete()
+          .eq('message_id', messageId)
+          .eq('user_id', currentUser.id);
+      } else {
+        const { error } = await supabase.from('reactions')
+          .upsert({ message_id: messageId, user_id: currentUser.id, emoji }, { onConflict: 'message_id,user_id' });
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error('pickReaction error:', err);
+      // Hoàn tác optimistic.
+      if (willDelete) addReactionToStore(messageId, currentUser.id, current);
+      else removeReactionFromStore(messageId, currentUser.id);
+      renderReactionBadges(row);
+      saveReactionsFromCache();
+      showAppToast('Thả cảm xúc thất bại');
+    }
+  }
+
+  // Vuốt trả lời dùng pointer (touchstart/move/end); đặt pointerdown/pointerup cho
+  // double-tap vào không xung đột vì chỉ kích hoạt khi không vuốt.
+  let gestureStart = null;
+  let gestureMoved = false;
+  let gestureRow = null;
+  let gestureMessage = null;
+  let longPressTimer = null;
+  let lastTapRow = null;
+  let lastTapAt = 0;
+
+  function setupRowGesture(row, message) {
+    row.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, .reaction-bar')) return;
+      gestureStart = { x: event.clientX, y: event.clientY };
+      gestureMoved = false;
+      gestureRow = row;
+      gestureMessage = message;
+      if (String(message.id).startsWith('tmp-') || !currentUser || message.sender_id === currentUser.id) return;
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(() => {
+        if (gestureMoved) return;
+        openReactionBar(row, message);
+        try { navigator.vibrate?.(10); } catch {}
+      }, 400);
+    }, { passive: true });
+
+    row.addEventListener('pointermove', (event) => {
+      if (!gestureStart) return;
+      if (Math.hypot(event.clientX - gestureStart.x, event.clientY - gestureStart.y) > 10) {
+        gestureMoved = true;
+        clearTimeout(longPressTimer);
+      }
+    }, { passive: true });
+
+    row.addEventListener('pointerup', () => {
+      clearTimeout(longPressTimer);
+      const wasRow = gestureRow;
+      const wasMessage = gestureMessage;
+      gestureStart = null; gestureRow = null; gestureMessage = null;
+      if (gestureMoved) return;
+      // Chạm đúp vào tin người khác → thả nhanh ❤️
+      if (!wasRow || !wasMessage || String(wasMessage.id).startsWith('tmp-') || !currentUser || wasMessage.sender_id === currentUser.id) return;
+      const now = Date.now();
+      if (lastTapRow === wasRow && now - lastTapAt < 350) {
+        lastTapRow = null; lastTapAt = 0;
+        pickReaction(wasMessage.id, '❤️');
+      } else {
+        lastTapRow = wasRow; lastTapAt = now;
+      }
+    });
+
+    row.addEventListener('pointercancel', () => {
+      clearTimeout(longPressTimer);
+      gestureStart = null; gestureRow = null; gestureMessage = null;
+    }, { passive: true });
+  }
+
+  async function loadReactionsForMessages() {
+    if (!currentUser) return;
+    const ids = [...messageCache.keys()].filter((id) => !String(id).startsWith('tmp-')).map(String);
+    if (ids.length === 0) return;
+    const { data, error } = await supabase
+      .from('reactions')
+      .select('message_id, user_id, emoji')
+      .in('message_id', ids)
+      .limit(500);
+    if (error) { console.error('loadReactions error:', error); return; }
+    if (data) for (const r of data) addReactionToStore(r.message_id, r.user_id, r.emoji);
+    document.querySelectorAll('.message-row[data-id]').forEach((row) => renderReactionBadges(row));
+    saveReactionsToCache();
+  }
+
+  function handleReactionsChange(payload) {
+    if (!payload.new || !currentUser) return;
+    const r = payload.new;
+    if (r.user_id === currentUser.id) return; // thay đổi của mình: đã optimistic
+    addReactionToStore(r.message_id, r.user_id, r.emoji);
+    const row = document.getElementById('msg-' + r.message_id);
+    if (row) renderReactionBadges(row, r.emoji);
+    saveReactionsToCache();
+    const msg = messageCache.get(r.message_id);
+    if (msg && msg.sender_id === currentUser.id) {
+      const name = profilesMap.get(r.user_id)?.name || 'Ai đó';
+      showAppToast(`${name} đã thả ${r.emoji} vào tin của bạn`);
+    }
+  }
+
+  function handleReactionsDelete(payload) {
+    const r = payload.old;
+    if (!r || !currentUser) return;
+    if (r.user_id === currentUser.id) return; // thay đổi của mình
+    removeReactionFromStore(r.message_id, r.user_id);
+    const row = document.getElementById('msg-' + r.message_id);
+    if (row) renderReactionBadges(row);
+    saveReactionsToCache();
+  }
+
+  function subscribeReactions() {
+    if (reactionsChannel) supabase.removeChannel(reactionsChannel);
+    reactionsChannel = supabase
+      .channel('public:reactions')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, handleReactionsChange)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reactions' }, handleReactionsChange)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, handleReactionsDelete)
+      .subscribe();
   }
 
   // ─── Sync 50 latest messages ─────────────────────────────────────────────────
@@ -2421,6 +2694,7 @@
       saveMsgsToCache();
       renderSeen();
       await markRead();
+      await loadReactionsForMessages();
     }
   }
 
@@ -2464,6 +2738,7 @@
       .subscribe((status) => {
         console.log('Realtime status:', status);
         if (status === 'SUBSCRIBED') {
+          subscribeReactions();
           syncMessages();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           setTimeout(subscribeRoom, 1500);
@@ -2473,6 +2748,9 @@
 
   // ─── Load from cache then sync ───────────────────────────────────────────────
   async function loadFromCacheThenSync() {
+    // Vẽ cảm xúc từ cache trước (nhanh)
+    loadReactionsFromCache();
+    document.querySelectorAll('.message-row[data-id]').forEach((row) => renderReactionBadges(row));
     // Draw from cache immediately
     const cached = lsGet(CACHE_MSGS_KEY);
     if (cached && cached.length > 0) {

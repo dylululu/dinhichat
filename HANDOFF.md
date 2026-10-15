@@ -10,8 +10,8 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover fixed 100lvh độc lập (--cover-shift chỉ khi pink kb); #app fixed top=--vvt + height=--vvh (không transform), contain layout paint; #list contain layout paint style + overflow-anchor none; dòng "đang nhập" viên thuốc absolute trên form; thanh trả lời absolute; html/body fixed inset 0 nền #fce4ec; thanh nhập chỉ [➕][ô nhập][Gửi], bảng chức năng #attach-menu lưới 4 cột absolute trên thanh nhập.
-- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + debounce trailing 120ms + __fitStats, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
+- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover fixed 100lvh độc lập (--cover-shift chỉ khi pink kb); #app fixed top=--vvt + height=--vvh (không transform), contain layout paint; #list contain layout paint style + overflow-anchor none; dòng "đang nhập" viên thuốc absolute trên form; thanh trả lời absolute; html/body fixed inset 0 nền #fce4ec; thanh nhập chỉ [➕][ô nhập][Gửi], bảng chức năng #attach-menu lưới 4 cột absolute trên thanh nhập; reaction-bar nổi trong #app + huy hiệu góc bong bóng.
+- `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + debounce trailing 120ms + __fitStats, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache, reactions (pickReaction/subscribeReactions/renderReactionBadges/loadReactionsForMessages, đúp chạm/long-press 400ms, bar nổi #reaction-bar trong #app, huy hiệu ≤2 góc bong bóng, optimistic + rollback toast, cache localStorage, toast khi người kia thả vào tin mình).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
 - `config.js`: Cấu hình public SUPABASE_URL, anon key, VAPID_PUBLIC_KEY.
@@ -24,8 +24,8 @@
 - `supabase/migrations/008_chat_settings.sql`: Bảng chat_settings và Realtime ảnh bìa chung.
 
 ## Database
-- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, reply_to, is_sticker, remind_mode, remind_count, next_remind_at, remind_done, read_at), `stickers` (id, owner_id, path, created_at), `chat_settings` (id, cover_path, updated_by, updated_at). Bucket: `chat-images`.
-- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`, `006_reply_to.sql`, `007_stickers.sql`, `008_chat_settings.sql`.
+- Bảng: `profiles` (id, name, push_subscription), `messages` (id, sender_id, content, created_at, image_path, reply_to, is_sticker, remind_mode, remind_count, next_remind_at, remind_done, read_at), `stickers` (id, owner_id, path, created_at), `chat_settings` (id, cover_path, updated_by, updated_at), `reactions` (message_id, user_id, emoji, created_at; PK (message_id,user_id); RLS chỉ thả vào tin người khác; realtime publication + replica identity full). Bucket: `chat-images`.
+- Migrations: `001_init.sql`, `002_images.sql`, `004_remind.sql`, `005_read.sql`, `006_reply_to.sql`, `007_stickers.sql`, `008_chat_settings.sql`, `009_reactions.sql`.
 - Functions deployed: `notify`, `remind`.
 
 ## Đã xong
@@ -49,10 +49,10 @@
 - Chống giật khung hình khi bàn phím iOS trượt: fitViewport gom 1 RAF + debounce trailing 120ms (chỉ đổi --vvh lúc bắt đầu và lúc ổn định, bỏ qua <2px); #app contain layout paint + transition none, #list contain layout paint style, header/thanh nhập contain layout; cuộn #list 1 lần sau khi ổn định; bàn phím iOS: #kb display:none; không autofocus.
 - Sửa lệch kép khi bàn phím iOS mở: #app không transform, chỉ top=offsetTop + height=vv.height; #cover fixed 100lvh độc lập phía sau; html/body fixed inset 0 nền #fce4ec; chặn iOS cuộn trang (scrollTo trong rAF khi pageYOffset/scrollTop lệch), lắng nghe cả visualViewport scroll+resize.
 - Gom nút chức năng vào bảng lưới 4 cột mở từ nút ➕ (camera/thư viện/sticker/nhắc/bàn phím); thanh nhập chỉ [➕][ô nhập][Gửi]; ➕ xoay 45°, chấm hồng khi nhắc bật, panel absolute không đổi layout #list, chọn mục tự đóng (trừ nhắc), đóng khi chạm ra ngoài/mở sticker; Gửi ẩn/hiện scale+opacity.
-- Tin chữ bay từ ô nhập vào nền; ảnh/sticker giữ hạt bay cũ, gửi optimistic và trạng thái gửi.
+- Thả cảm xúc: đúp chạm hoặc long-press 400ms vào tin người khác (hủy nếu di chuyển >10px, không đụng vuốt trả lời) → thanh 6 emoji nổi trong #app (tự trên/dưới tùy chỗ trống, không đẩy layout); trùng = bỏ, optimistic + rollback toast; realtime reactions cập nhật huy hiệu; cache localStorage; ❤️ có tim bay, reduced-motion tắt.
 
 ## Đang làm / Dở dang
-- Bạn làm tay: `npx serve .` thử chế độ điện thoại, tự git push, xóa icon iPhone rồi thêm lại.
+- Bạn làm tay: `npx supabase db push` (chạy migration 009), `npx serve .` thử bằng 2 cửa sổ, tự git push, xóa icon iPhone rồi thêm lại.
 
 ## Lỗi đã biết / Lưu ý
 - Kết nối trực tiếp DB bị chặn pass; chạy migration qua Supabase Management Query API.

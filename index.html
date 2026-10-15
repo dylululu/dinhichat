@@ -522,7 +522,8 @@
       padding-right: max(10px, env(safe-area-inset-right));
     }
     body.kb .chat-messages { will-change: scroll-position; }
-    .message-row { max-width: 78%; min-width: 0; }
+    .message-row { position: relative; max-width: 78%; min-width: 0; margin-bottom: 0; }
+    .message-row.has-reaction { margin-bottom: 16px; }
     .message-bubble, .w .b {
       max-width: 100%;
       overflow-wrap: anywhere;
@@ -1296,6 +1297,105 @@
     }
     @media (prefers-color-scheme: dark) {
       .typing-indicator { background: rgba(58, 29, 42, .9); }
+    }
+
+    /* Thả cảm xúc */
+    .reaction-bar {
+      position: absolute;
+      display: none;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, .9);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
+      z-index: 60;
+      transform: scale(.9);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 150ms ease, transform 150ms ease;
+      contain: layout paint;
+      will-change: transform, opacity;
+    }
+    .reaction-bar.open {
+      display: flex;
+      pointer-events: auto;
+      animation: reaction-bar-in 150ms ease;
+    }
+    @keyframes reaction-bar-in {
+      from { opacity: 0; transform: scale(.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .reaction-btn {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .reaction-btn:active { background: #ffe0ec; }
+
+    .reaction-badge {
+      position: absolute;
+      bottom: -8px;
+      font-size: 14px;
+      line-height: 1.4;
+      padding: 0 5px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .message-row.other .reaction-badge { left: -8px; }
+    .message-row.self .reaction-badge { right: -8px; }
+    .reaction-badge.pop { animation: reaction-pop 250ms ease; }
+    @keyframes reaction-pop {
+      0% { transform: scale(0); }
+      60% { transform: scale(1.3); }
+      100% { transform: scale(1); }
+    }
+    .heart-fly {
+      position: absolute;
+      font-size: 10px;
+      line-height: 1;
+      pointer-events: none;
+      animation: heart-fly 600ms ease-out forwards;
+    }
+    @keyframes heart-fly {
+      from { opacity: 1; transform: translateY(0) scale(.6); }
+      to { opacity: 0; transform: translateY(-26px) scale(1.1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .reaction-badge.pop { animation: none; }
+      .heart-fly { animation-duration: 1ms; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .reaction-bar { background: rgba(58, 29, 42, .92); }
+      .reaction-btn:active { background: #5a2d40; }
+      .reaction-badge { background: rgba(58, 29, 42, .94); }
+    }
+
+    .app-toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom) + 84px);
+      transform: translateX(-50%);
+      z-index: 20000;
+      max-width: 86vw;
+      padding: 8px 14px;
+      border-radius: 16px;
+      background: rgba(51, 51, 51, .94);
+      color: #fff;
+      font-size: 13px;
+      line-height: 18px;
+      text-align: center;
+      pointer-events: none;
+      animation: reaction-bar-in 150ms ease;
     }
 
     .message-seen-status {
