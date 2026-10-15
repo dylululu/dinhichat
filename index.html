@@ -1309,6 +1309,145 @@
       .typing-indicator { background: rgba(58, 29, 42, .9); }
     }
 
+    /* Chuỗi giữ lửa */
+    .streak-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      min-width: 40px;
+      min-height: 40px;
+      padding: 4px 10px;
+      border: 1px solid rgba(233, 30, 99, .25);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, .75);
+      color: var(--text-main);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .streak-heart {
+      position: relative;
+      display: inline-flex;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .streak-heart::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid rgba(233, 30, 99, .5);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .streak-pill.is-hot .streak-heart { animation: streak-beat 1.2s ease-in-out infinite; }
+    .streak-pill.is-hot .streak-heart::after { animation: streak-glow 1.2s ease-out infinite; }
+    .streak-pill.is-wait .streak-heart { animation: streak-beat 2s ease-in-out infinite; filter: grayscale(.7); opacity: .8; }
+    .streak-pill.is-wait .streak-heart::after { animation: streak-glow 2s ease-out infinite; }
+    .streak-pill.is-zero .streak-heart { animation: none; filter: grayscale(1); opacity: .6; }
+    .streak-warn {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #ff9800;
+      display: none;
+    }
+    .streak-pill.is-wait .streak-warn { display: block; }
+    @keyframes streak-beat {
+      0%, 100% { transform: scale(1); }
+      12% { transform: scale(1.18); }
+      24% { transform: scale(1); }
+      36% { transform: scale(1.1); }
+      48% { transform: scale(1); }
+    }
+    @keyframes streak-glow {
+      0% { transform: scale(.7); opacity: .55; }
+      100% { transform: scale(1.5); opacity: 0; }
+    }
+    .streak-pill.celebrate .streak-heart { animation: streak-pop .5s ease; }
+    @keyframes streak-pop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.6); }
+      100% { transform: scale(1); }
+    }
+    .streak-fly {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      font-size: 12px;
+      line-height: 1;
+      pointer-events: none;
+      animation: streak-fly 900ms ease-out forwards;
+      z-index: 5;
+    }
+    @keyframes streak-fly {
+      from { opacity: 1; transform: translate(-50%, 0) scale(.7); }
+      to { opacity: 0; transform: translate(calc(-50% + var(--dx, 0px)), -34px) scale(1.1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .streak-heart, .streak-heart::after { animation: none !important; }
+      .streak-fly { display: none; }
+      .streak-pill.celebrate .streak-heart { animation: none; }
+    }
+    @media (max-width: 360px) {
+      .streak-word { display: none; }
+      .streak-pill { padding: 4px 8px; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .streak-pill { background: rgba(58, 29, 42, .85); border-color: rgba(233, 30, 99, .4); color: #fff; }
+      .streak-sheet { background: #3a1d2a; color: #fff; }
+      .streak-sheet .streak-today { color: #f3d9e4; }
+      .streak-close { background: #5a2d40; color: #fff; }
+    }
+    .streak-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 400;
+      background: transparent;
+      display: none;
+    }
+    .streak-backdrop.open { display: block; }
+    .streak-sheet {
+      position: absolute;
+      top: calc(env(safe-area-inset-top) + 64px);
+      left: 12px;
+      right: 12px;
+      z-index: 401;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .18);
+      padding: 16px 14px;
+      display: none;
+      text-align: center;
+    }
+    .streak-sheet.open { display: block; animation: streak-sheet-in 160ms ease; }
+    @keyframes streak-sheet-in {
+      from { opacity: 0; transform: scale(.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .streak-big { font-size: 40px; font-weight: 800; line-height: 1.1; }
+    .streak-big-label { font-size: 13px; color: #888; margin-bottom: 6px; }
+    .streak-best { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .streak-today { font-size: 13px; margin-bottom: 8px; }
+    .streak-week { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; font-size: 18px; line-height: 1; }
+    .streak-close {
+      min-height: 40px;
+      padding: 8px 22px;
+      border: 0;
+      border-radius: 16px;
+      background: #fce4ec;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
     /* Thả cảm xúc kiểu Zalo */
     .rx-trigger-btn {
       position: absolute;
@@ -1603,6 +1742,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="streak-pill" class="streak-pill is-zero" type="button" aria-label="Chuỗi giữ lửa"><span class="streak-heart" id="streak-heart">🤍</span><span id="streak-num">0</span><span class="streak-word">&nbsp;ngày</span><span class="streak-warn" aria-hidden="true"></span></button>
         <button id="btn-enable-notify" class="btn-notify">🔔 Bật thông báo</button>
         <button id="btn-cover" class="btn-cover" type="button" aria-label="Ảnh bìa">🖼️</button>
         <div id="cover-menu" class="cover-menu">
@@ -1619,6 +1759,15 @@
       Để nhận thông báo trên iPhone: Bấm nút <strong>Chia sẻ</strong> (biểu tượng hộp có mũi tên) → <strong>Thêm vào Màn
         hình chính</strong>.
     </div>
+    <div id="streak-backdrop" class="streak-backdrop"></div>
+    <section id="streak-sheet" class="streak-sheet" role="dialog" aria-label="Chuỗi giữ lửa">
+      <div class="streak-big"><span id="streak-big-heart">💗</span><span id="streak-big-num">0</span></div>
+      <div class="streak-big-label">ngày giữ lửa</div>
+      <div class="streak-best">Kỷ lục: <span id="streak-best-num">0</span> ngày</div>
+      <div class="streak-today" id="streak-today-text"></div>
+      <div class="streak-week" id="streak-week"></div>
+      <button id="streak-close" class="streak-close" type="button">Đóng</button>
+    </section>
 
     <main class="chat-messages" id="messages-container">
       <!-- Bubbles will be rendered here -->

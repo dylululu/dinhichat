@@ -11,13 +11,13 @@
 
 ## Bản đồ file
 - `index.html`: UI chat, #kb hồng, #app fixed, #list contain, viên thuốc đang nhập, thanh trả lời, nút 🤍/huy hiệu là con bong bóng (right:-6px; bottom:-10px), #rxBar + #rxBackdrop, bong bóng user-select:none.
-- `app.js`: Client logic (initChat, ensurePush, fitViewport, addMsg, reply, sticker, cache, nút 🤍 trong bong bóng mở #rxBar (click), huy hiệu chạm mở lại thanh, pickReaction, đúp chạm ❤️).
+- `app.js`: Client logic (initChat, ensurePush, fitViewport, addMsg, reply, sticker, cache, nút 🤍 trong bong bóng mở #rxBar (click), huy hiệu chạm mở lại thanh, pickReaction, đúp chạm ❤️, streak header + sheet + rpc get_streak + cache + celebrate).
 - `sw.js` / `config.js`: Service worker và config public Supabase.
 - `supabase/functions/`: notify (push tức thì), remind (cron nhắc chưa rep).
-- `supabase/migrations/`: 001_init -> 009_reactions.
+- `supabase/migrations/`: 001_init -> 010_streak (hàm get_streak security definer).
 
 ## Database
-- Bảng: `profiles`, `messages`, `stickers`, `chat_settings`, `reactions` (message_id, user_id, emoji; PK; RLS; Realtime).
+- Bảng: `profiles`, `messages`, `stickers`, `chat_settings`, `reactions` (message_id, user_id, emoji; PK; RLS; Realtime). Hàm `get_streak()` → {current, best, today_me, today_other, last_both_date, week[7]} (ngày giờ VN, chuỗi date-row_number).
 
 ## Đã xong
 - Chat realtime 2 người, chống trùng tin, Web Push PWA (iOS Safari).
@@ -27,9 +27,10 @@
 - Vuốt phải trả lời tin nhắn, resolve reply_to, chống giật layout bàn phím iOS.
 - Bảng chức năng ➕ 4 cột, bàn phím iOS mặc định + phím hồng Telex 🌐.
 - Thả cảm xúc: nút 🤍 22px là con bong bóng tin người kia (right:-6px; bottom:-10px, vùng chạm 40px), có reaction thì ẩn nút hiện huy hiệu cùng chỗ (chạm mở lại thanh); giờ margin-top 12px không bị che; #rxBar + #rxBackdrop (click), chạm đúp ❤️, optimistic + toast.
+- Chuỗi giữ lửa: viên thuốc 💗/🤍 N ngày ở header (tim đập lub-dub 1.2s/2s + vòng sáng, chờ có chấm cam, reduced-motion đứng yên); bấm mở sheet (số lớn, kỷ lục, trạng thái hôm nay, 7 chấm tim); rpc get_streak khi mở app/visible/gửi/nhận (debounce 2s) + cache; tăng streak ăn mừng tim bay + toast, mốc 7/30/100/365 riêng.
 
 ## Đang làm / Dở dang
-- Bạn làm tay: kiểm tra bằng `npx serve .`, tự git push, xóa icon iPhone rồi thêm lại.
+- Bạn làm tay: `npx serve .` thử, tự git push, xóa icon iPhone rồi thêm lại.
 
 ## Lỗi đã biết / Lưu ý
 - Chạy migration qua Supabase Management Query API (kết nối trực tiếp DB bị chặn pass).

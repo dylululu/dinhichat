@@ -2766,6 +2766,7 @@
     saveReactionsToCache();
   }
 
+  let reactionsChannel = null;
   function subscribeReactions() {
     if (reactionsChannel) supabase.removeChannel(reactionsChannel);
     reactionsChannel = supabase
@@ -2817,6 +2818,7 @@
               scrollMessagesToBottom();
             }
             saveMsgsToCache();
+            scheduleStreakRefresh();
             if (currentUser && payload.new.sender_id !== currentUser.id) {
               hideTyping();
               markRead();
@@ -3017,10 +3019,133 @@
     });
     if (pinkKeyboardOpen) scrollMessagesAfterKeyboard(true);
     await pendingSend;
+    scheduleStreakRefresh();
     clearReply();
     keepMessageInputFocused();
     scrollMessagesToBottom();
   }
+
+  // ─── Chuỗi giữ lửa (streak) ────────────────────────────────────────────────
+  const STREAK_KEY = 'dinhichat_streak_v1';
+  const STREAK_MILESTONES = { 7: 'Cột mốc 7 ngày giữ lửa! 💕🔥', 30: 'Tròn 30 ngày giữ lửa! 💖🔥', 100: '100 ngày giữ lửa, quá đỉnh! 💯💗', 365: '365 ngày giữ lửa, cả năm yêu thương! 🎉💗' };
+  let streakData = null;
+  let streakPrev = null;
+  let streakTimer = null;
+  const streakPill = document.getElementById('streak-pill');
+  const streakHeart = document.getElementById('streak-heart');
+  const streakNum = document.getElementById('streak-num');
+  const streakSheet = document.getElementById('streak-sheet');
+  const streakBackdrop = document.getElementById('streak-backdrop');
+  const streakBigHeart = document.getElementById('streak-big-heart');
+  const streakBigNum = document.getElementById('streak-big-num');
+  const streakBestNum = document.getElementById('streak-best-num');
+  const streakTodayText = document.getElementById('streak-today-text');
+  const streakWeek = document.getElementById('streak-week');
+  const streakClose = document.getElementById('streak-close');
+
+  function streakOtherName() {
+    if (!currentUser) return 'Iu dấu';
+    for (const p of profilesMap.values()) {
+      if (p.id !== currentUser.id) return p.name || 'Iu dấu';
+    }
+    return 'Iu dấu';
+  }
+
+  function renderStreak() {
+    if (!streakData || !streakPill) return;
+    const cur = streakData.current || 0;
+    const best = streakData.best || 0;
+    const both = !!(streakData.today_me && streakData.today_other);
+    if (streakNum) streakNum.textContent = String(cur);
+    if (streakHeart) streakHeart.textContent = cur === 0 ? '🤍' : '💗';
+    streakPill.classList.toggle('is-hot', cur > 0 && both);
+    streakPill.classList.toggle('is-wait', cur > 0 && !both);
+    streakPill.classList.toggle('is-zero', cur === 0);
+    if (streakBigNum) streakBigNum.textContent = String(cur);
+    if (streakBigHeart) streakBigHeart.textContent = cur === 0 ? '🤍' : '💗';
+    if (streakBestNum) streakBestNum.textContent = String(best);
+    if (streakTodayText) {
+      if (both) streakTodayText.textContent = 'Cả hai đã giữ lửa hôm nay 💕';
+      else if (!streakData.today_me) streakTodayText.textContent = 'Bạn chưa nhắn hôm nay';
+      else streakTodayText.textContent = streakOtherName() + ' chưa nhắn hôm nay';
+    }
+    if (streakWeek) {
+      streakWeek.textContent = '';
+      const week = Array.isArray(streakData.week) ? streakData.week : [];
+      for (const day of week.slice(-7)) {
+        const s = document.createElement('span');
+        s.textContent = day && day.kept ? '💗' : '🤍';
+        if (day && day.date) s.title = String(day.date);
+        streakWeek.appendChild(s);
+      }
+    }
+  }
+
+  function celebrateStreak(n) {
+    if (STREAK_MILESTONES[n]) showAppToast(STREAK_MILESTONES[n], 3000);
+    else showAppToast('Streak ' + n + ' ngày 🔥💗');
+    if (!streakPill || document.hidden) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;
+    streakPill.classList.remove('celebrate');
+    void streakPill.offsetWidth;
+    streakPill.classList.add('celebrate');
+    setTimeout(() => streakPill.classList.remove('celebrate'), 600);
+    for (let i = 0; i < 8; i++) {
+      const s = document.createElement('span');
+      s.className = 'streak-fly';
+      s.textContent = i % 2 ? '💗' : '🔥';
+      s.style.setProperty('--dx', ((i - 3.5) * 8) + 'px');
+      s.style.animationDelay = (i * 40) + 'ms';
+      streakPill.appendChild(s);
+      setTimeout(() => s.remove(), 1100 + i * 40);
+    }
+  }
+
+  async function refreshStreak() {
+    if (!currentUser) return;
+    try {
+      const { data, error } = await supabase.rpc('get_streak');
+      if (error) throw error;
+      if (!data) return;
+      const prev = streakPrev;
+      streakData = data;
+      try { localStorage.setItem(STREAK_KEY, JSON.stringify(data)); } catch {}
+      renderStreak();
+      if (prev !== null && (data.current || 0) > prev) celebrateStreak(data.current);
+      streakPrev = data.current || 0;
+    } catch (err) {
+      console.error('refreshStreak error:', err);
+    }
+  }
+
+  function scheduleStreakRefresh() {
+    clearTimeout(streakTimer);
+    streakTimer = setTimeout(refreshStreak, 2000);
+  }
+
+  function loadStreakCache() {
+    try {
+      const c = JSON.parse(localStorage.getItem(STREAK_KEY) || 'null');
+      if (c && typeof c.current === 'number') {
+        streakData = c;
+        streakPrev = c.current;
+        renderStreak();
+      }
+    } catch {}
+  }
+
+  function closeStreakSheet() {
+    streakSheet?.classList.remove('open');
+    streakBackdrop?.classList.remove('open');
+  }
+  streakPill?.addEventListener('click', () => {
+    renderStreak();
+    streakSheet?.classList.add('open');
+    streakBackdrop?.classList.add('open');
+  });
+  streakClose?.addEventListener('click', closeStreakSheet);
+  streakBackdrop?.addEventListener('click', closeStreakSheet);
 
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
   document.addEventListener('visibilitychange', () => {
@@ -3031,6 +3156,7 @@
       checkNotificationStatus();
       ensurePush();
       refreshCoverFromServer();
+      scheduleStreakRefresh();
     } else if (document.visibilityState === 'hidden') {
       sendStopTyping();
     }
@@ -3058,6 +3184,8 @@
       }
 
       await loadProfiles();
+      loadStreakCache();
+      refreshStreak();
       await loadCover();
       subscribeCoverSettings();
       await loadFromCacheThenSync();
