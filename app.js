@@ -2237,7 +2237,13 @@
   function showTyping(senderId) {
     if (!typingIndicator) return;
     const name = profilesMap.get(senderId)?.name || 'Iu dấu';
-    typingIndicator.textContent = '💕 ' + name + ' đang nhập...';
+    // textContent cho tên (an toàn XSS), 3 chấm nhảy bằng DOM riêng.
+    typingIndicator.textContent = '💕 ' + name + ' đang nhập ';
+    const dots = document.createElement('span');
+    dots.className = 'typing-dots';
+    dots.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 3; i++) dots.appendChild(document.createElement('span'));
+    typingIndicator.appendChild(dots);
     typingIndicator.classList.add('visible');
     clearTimeout(typingTimer);
     typingTimer = setTimeout(hideTyping, 4000);

@@ -10,7 +10,7 @@
 - Chỉ sửa file được nêu trong yêu cầu
 
 ## Bản đồ file
-- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover fixed 100lvh độc lập (--cover-shift chỉ khi pink kb); #app fixed top=--vvt + height=--vvh (không transform), contain layout paint; #list contain layout paint style + overflow-anchor none; typing indicator/thanh trả lời absolute; html/body fixed inset 0 nền #fce4ec; thanh nhập chỉ [➕][ô nhập][Gửi], bảng chức năng #attach-menu lưới 4 cột absolute trên thanh nhập.
+- `index.html`: UI chat, #kb bàn phím hồng `height:auto`, phím VI/EN riêng, Telex/emoji và 🌐 chuyển bàn phím iOS; phím vào bằng pointerdown; #chat-cover fixed 100lvh độc lập (--cover-shift chỉ khi pink kb); #app fixed top=--vvt + height=--vvh (không transform), contain layout paint; #list contain layout paint style + overflow-anchor none; dòng "đang nhập" viên thuốc absolute trên form; thanh trả lời absolute; html/body fixed inset 0 nền #fce4ec; thanh nhập chỉ [➕][ô nhập][Gửi], bảng chức năng #attach-menu lưới 4 cột absolute trên thanh nhập.
 - `app.js`: Logic client (initChat, ensurePush, openPinkKeyboard, handleKeyboardPointerDown, cacheKeyboardKeyCoordinates, toggleKeyboardLanguage, telex(word,key) `uo`→`ươ` kể cả trước phụ âm cuối, fitViewport RAF + debounce trailing 120ms + __fitStats, resizeMessageInput bằng mirror textarea, addMsg, addOptimisticMessage, reply, crop ảnh bìa, sticker, cache).
 - `supabase/functions/remind/index.ts`: Gửi nhắc một lần, hai lần hoặc lặp đến khi người kia trả lời.
 - `sw.js`: Service worker (hiển thị webpush, notificationclick sync app).
@@ -38,7 +38,7 @@
 - Khi có tin mới từ cùng người gửi, Edge Function hủy các nhắc còn chờ của tin cũ.
 - Chống zoom khi gõ trên iPhone PWA: khóa viewport 1x, font nhập 16px, RAF chỉ cập nhật --vvh/--vvt khi dùng bàn phím iOS, chặn gesture/double-tap.
 - "Iu dấu đã xem": cập nhật read_at khi visible, hiện "Iu dấu đã xem lúc HH:mm" / "Đã gửi" ở tin cuối.
-- "Iu dấu đang nhập": Realtime broadcast channel typing-room, hiện "💕 [tên] đang nhập...", tự ẩn sau 4s/stop.
+- "Iu dấu đang nhập": Realtime broadcast channel typing-room; dòng viên thuốc absolute ngay trên thanh nhập (bottom:100% của form, z-8, không đổi layout), nội dung "💕 [tên] đang nhập" bằng textContent + 3 chấm nhảy transform/opacity 150ms lệch pha, ẩn khi stop/4s; panel ➕/sticker mở thì ẩn tạm (opacity), prefers-reduced-motion chỉ nhấp nháy.
 - `ensurePush()` tự phục hồi subscription, cập nhật profiles khi mở app/trở lại foreground; nhắc nếu người kia chưa bật thông báo.
 - Sửa cập nhật trạng thái nhắc cho service role; 1/2 lần dừng đúng số lượt, liên tục đến khi có trả lời.
 - Bàn phím iPhone hệ thống mặc định, resetToNativeKeyboard() tự bật lại khi mở app/trở lại foreground (initChat/pageshow/visibilitychange); 🌐 chuyển sang #kb hồng; Telex w đổi `uo`→`ươ`, dấu thanh trên ơ, phím a/e/o/d chỉ hoàn tác đúng phím lặp; chèn pointerdown, việc phụ qua RAF.

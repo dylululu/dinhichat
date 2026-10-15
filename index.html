@@ -1246,27 +1246,57 @@
 
     .typing-indicator {
       position: absolute;
-      left: 38px;
-      right: 0;
-      top: 100%;
-      margin-top: -2px;
-      z-index: 2;
-      display: block;
-      height: 15px;
-      overflow: hidden;
+      left: 8px;
+      bottom: calc(100% + 6px);
+      max-width: calc(100% - 16px);
+      height: 24px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-sizing: border-box;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .9);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .1);
+      z-index: 8;
       opacity: 0;
-      transform: translateY(-4px);
+      transform: translateY(4px);
       transition: opacity 150ms ease, transform 150ms ease;
       pointer-events: none;
       font-size: 12px;
-      color: #8e8e93;
-      padding: 0;
-      font-style: italic;
-      background: transparent;
+      color: #e91e63;
       white-space: nowrap;
-      text-overflow: ellipsis;
+      overflow: hidden;
     }
     .typing-indicator.visible { opacity: 1; transform: translateY(0); }
+    /* Ẩn tạm khi panel ➕ hoặc sticker/trả lời đang mở (chỉ opacity, không đổi layout) */
+    .typing-indicator.under-overlay { opacity: 0; }
+    .chat-input-bar:has(.attach-menu.open) .typing-indicator,
+    .chat-input-bar:has(.sticker-panel.open) .typing-indicator { opacity: 0; }
+    .typing-dots { display: inline-flex; align-items: center; gap: 3px; }
+    .typing-dots span {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #e91e63;
+      animation: typing-dot 1.2s infinite ease-in-out;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: .15s; }
+    .typing-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes typing-dot {
+      0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-2px); }
+    }
+    @keyframes typing-dot-fade {
+      0%, 60%, 100% { opacity: .3; }
+      30% { opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .typing-dots span { animation-name: typing-dot-fade; transform: none; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .typing-indicator { background: rgba(58, 29, 42, .9); }
+    }
 
     .message-seen-status {
       font-size: 11px;
@@ -1344,7 +1374,6 @@
         <div class="header-title-wrap">
           <h1 id="chat-title">DiNhiChat</h1>
           <div class="header-status" id="user-status">Trực tuyến</div>
-          <div id="typing-indicator" class="typing-indicator"></div>
         </div>
       </div>
       <div class="header-actions">
@@ -1370,6 +1399,7 @@
     </main>
 
     <footer class="chat-input-bar">
+      <div id="typing-indicator" class="typing-indicator" aria-hidden="true"></div>
       <button id="new-messages-button" type="button">↓ Tin mới</button>
       <div id="reply-bar" class="reply-bar">
         <div id="reply-bar-text" class="reply-bar-text"></div>
