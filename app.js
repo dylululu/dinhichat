@@ -2349,11 +2349,11 @@
       if (options.localImageUrl) img.src = options.localImageUrl;
       else getSignedUrl(message.image_path).then((url) => { if (url) img.src = url; });
       if (canReact) {
-        const wrap = document.createElement('div');
-        wrap.className = 'message-bubble-wrap';
-        wrap.appendChild(img);
-        wrap.appendChild(createRxOpenBtn(message.id, ''));
-        row.appendChild(wrap);
+        const frame = document.createElement('span');
+        frame.className = 'rx-sticker-frame';
+        frame.appendChild(img);
+        frame.appendChild(createRxTriggerBtn(message.id, ''));
+        row.appendChild(frame);
       } else {
         row.appendChild(img);
       }
@@ -2390,12 +2390,13 @@
         caption.textContent = message.content;
       }
       if (canReact) {
-        const bubbleWrap = document.createElement('div');
-        bubbleWrap.className = 'message-bubble-wrap';
-        bubbleWrap.appendChild(wrap);
-        if (caption) bubbleWrap.appendChild(caption);
-        bubbleWrap.appendChild(createRxOpenBtn(message.id, message.content || ''));
-        row.appendChild(bubbleWrap);
+        row.appendChild(wrap);
+        if (caption) {
+          caption.appendChild(createRxTriggerBtn(message.id, message.content || ''));
+          row.appendChild(caption);
+        } else {
+          wrap.appendChild(createRxTriggerBtn(message.id, message.content || ''));
+        }
       } else {
         row.appendChild(wrap);
         if (caption) row.appendChild(caption);
@@ -2411,14 +2412,9 @@
       bubble.appendChild(content);
 
       if (canReact) {
-        const bubbleWrap = document.createElement('div');
-        bubbleWrap.className = 'message-bubble-wrap';
-        bubbleWrap.appendChild(bubble);
-        bubbleWrap.appendChild(createRxOpenBtn(message.id, message.content || ''));
-        row.appendChild(bubbleWrap);
-      } else {
-        row.appendChild(bubble);
+        bubble.appendChild(createRxTriggerBtn(message.id, message.content || ''));
       }
+      row.appendChild(bubble);
     }
 
     const time = document.createElement('div');
@@ -2433,6 +2429,7 @@
     messagesContainer.appendChild(row);
     enableSwipeReply(row, message);
     setupRowGesture(row, message);
+    if (canReact) renderReactionBadges(row);
     if (options.animate) animateMessage(row, isSelf);
     renderSeen();
     if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -2486,9 +2483,15 @@
     const id = row.dataset.id || row.id.replace(/^msg-/, '');
     const m = reactions.get(String(id));
     row.classList.remove('has-reaction');
-    if (!m || !m.size) return;
+    const trigger = row.querySelector('.rx-trigger-btn');
+    if (!m || !m.size) {
+      if (trigger) trigger.style.display = '';
+      return;
+    }
+    // Đã có cảm xúc: ẩn nút, hiện huy hiệu đúng chỗ đó; chạm huy hiệu mở lại thanh.
+    if (trigger) trigger.style.display = 'none';
     // Huy hiệu gắn vào bong bóng (góc dưới phải), tối đa 2 emoji trong 1 viên thuốc.
-    const anchor = row.querySelector('.message-bubble, .w .b, .msg-image-wrap, .msg-sticker');
+    const anchor = row.querySelector('.message-bubble, .w .b, .msg-image-wrap, .rx-sticker-frame');
     if (!anchor) return;
     const emojis = [...m.values()].slice(0, 2);
     const badge = document.createElement('span');
@@ -2499,6 +2502,13 @@
       span.textContent = emoji;
       badge.appendChild(span);
     }
+    badge.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const msg = messageCache.get(String(id));
+      if (!msg || !currentUser || msg.sender_id === currentUser.id) return;
+      openReactionBar(id, badge.getBoundingClientRect(), msg.content || '');
+    });
     anchor.appendChild(badge);
     if (emojis.includes(popEmoji) && popEmoji === '❤️') flyHearts(row);
     row.classList.add('has-reaction');
@@ -2521,12 +2531,12 @@
     }
   }
 
-  // ─── Nút mở thanh cảm xúc 😊+ ───
-  function createRxOpenBtn(messageId, content) {
+  // ─── Nút thả cảm xúc kiểu Zalo: con của bong bóng, góc dưới-phải ───
+  function createRxTriggerBtn(messageId, content) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'rx-open-btn';
-    btn.textContent = '😊+';
+    btn.className = 'rx-trigger-btn';
+    btn.textContent = '🤍';
     btn.setAttribute('aria-label', 'Thả cảm xúc');
     btn.addEventListener('click', (event) => {
       event.preventDefault();
@@ -2685,7 +2695,7 @@
   function setupRowGesture(row, message) {
     row.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
-      if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, #rxBar, .rx-open-btn')) return;
+      if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, #rxBar, .rx-trigger-btn')) return;
       tapStartPos = { x: event.clientX, y: event.clientY };
     }, { passive: true });
 

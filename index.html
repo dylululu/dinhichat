@@ -1309,47 +1309,39 @@
       .typing-indicator { background: rgba(58, 29, 42, .9); }
     }
 
-    /* Thả cảm xúc */
-    .message-bubble-wrap {
-      position: relative;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: flex-start;
-      max-width: 100%;
-    }
-    .rx-open-btn {
+    /* Thả cảm xúc kiểu Zalo */
+    .rx-trigger-btn {
       position: absolute;
-      left: calc(100% + 6px);
-      bottom: 4px;
-      width: 28px;
-      height: 28px;
+      right: -6px;
+      bottom: -10px;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
-      border: 0;
-      background: rgba(255, 255, 255, .85);
-      font-size: 14px;
-      line-height: 28px;
-      text-align: center;
-      display: flex;
+      border: 1px solid rgba(0, 0, 0, .08);
+      background: rgba(255, 255, 255, .92);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      opacity: .55;
       padding: 0;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
+      color: #999;
+      font-size: 12px;
+      line-height: 1;
       user-select: none;
       -webkit-user-select: none;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
-      z-index: 2;
+      z-index: 3;
     }
-    .rx-open-btn::before {
+    .rx-trigger-btn::before {
       content: '';
       position: absolute;
-      inset: -6px;
+      inset: -9px;
       border-radius: 50%;
     }
-    .rx-open-btn:active {
-      opacity: 1;
+    .rx-trigger-btn:active {
+      transform: scale(1.15);
       background: #ffffff;
     }
 
@@ -1429,20 +1421,44 @@
 
     .reaction-badge {
       position: absolute;
-      right: 6px;
+      right: -6px;
       bottom: -10px;
-      height: 20px;
-      padding: 0 4px;
+      height: 22px;
+      padding: 0 5px;
       display: inline-flex;
       align-items: center;
       gap: 2px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, .9);
+      border-radius: 11px;
+      border: 1px solid rgba(0, 0, 0, .08);
+      background: rgba(255, 255, 255, .92);
       box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
-      pointer-events: none;
+      cursor: pointer;
+      pointer-events: auto;
       white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      z-index: 3;
+    }
+    .reaction-badge::before {
+      content: '';
+      position: absolute;
+      inset: -9px;
+      border-radius: 11px;
+    }
+    .reaction-badge:active {
+      transform: scale(1.12);
     }
     .reaction-badge .reaction-emoji { font-size: 12px; line-height: 1; }
+
+    @media (max-width: 360px) {
+      .message-row.other .rx-trigger-btn,
+      .reaction-badge {
+        right: 2px;
+      }
+    }
+    .rx-sticker-frame { position: relative; display: inline-block; line-height: 0; }
     .message-bubble, .w .b, .msg-image-wrap, .msg-sticker, .reply-quote { position: relative; }
     .message-row.has-reaction { margin-bottom: 12px; }
     .message-row.has-reaction .message-time { margin-top: 14px; }
@@ -1468,12 +1484,13 @@
       .heart-fly { animation-duration: 1ms; }
     }
     @media (prefers-color-scheme: dark) {
-      .rx-open-btn {
+      .rx-trigger-btn {
         background: rgba(58, 29, 42, .88);
-        color: #fff;
+        color: #f8bbd0;
+        border-color: rgba(255, 255, 255, .12);
         box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
       }
-      .rx-open-btn:active {
+      .rx-trigger-btn:active {
         background: rgba(78, 39, 56, .98);
       }
       #rxBar {
