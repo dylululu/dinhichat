@@ -1319,10 +1319,10 @@
       touch-action: none;
     }
     #rxLayer.open { display: block; pointer-events: auto; }
-    #rxLayer.open .reaction-bar { display: flex; pointer-events: auto; }
-    #rxBar { position: absolute; left: 12px; }
+    #rxLayer.open .reaction-bar { display: flex; pointer-events: auto; animation: reaction-bar-in 150ms ease; }
     .reaction-bar {
       position: absolute;
+      left: 12px;
       gap: 4px;
       padding: 4px;
       border-radius: 22px;
@@ -1339,7 +1339,6 @@
     .reaction-bar.open {
       display: flex;
       pointer-events: auto;
-      animation: reaction-bar-in 150ms ease;
     }
     @keyframes reaction-bar-in {
       from { opacity: 0; transform: scale(.9); }
