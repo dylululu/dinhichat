@@ -2458,18 +2458,21 @@
     const m = reactions.get(String(id));
     row.classList.remove('has-reaction');
     if (!m || !m.size) return;
-    let count = 0;
-    for (const [userId, emoji] of m) {
-      if (count >= 2) break; // tối đa 2 huy hiệu cạnh nhau
-      const badge = document.createElement('span');
-      badge.className = 'reaction-badge' + (emoji === popEmoji ? ' pop' : '');
-      badge.textContent = emoji;
-      badge.dataset.userId = userId;
-      row.appendChild(badge);
-      if (emoji === popEmoji && emoji === '❤️') flyHearts(row);
-      count++;
+    // Huy hiệu gắn vào bong bóng (góc dưới phải), tối đa 2 emoji trong 1 viên thuốc.
+    const anchor = row.querySelector('.message-bubble, .w .b, .msg-image-wrap, .msg-sticker');
+    if (!anchor) return;
+    const emojis = [...m.values()].slice(0, 2);
+    const badge = document.createElement('span');
+    badge.className = 'reaction-badge' + (emojis.includes(popEmoji) ? ' pop' : '');
+    for (const emoji of emojis) {
+      const span = document.createElement('span');
+      span.className = 'reaction-emoji';
+      span.textContent = emoji;
+      badge.appendChild(span);
     }
-    if (count > 0) row.classList.add('has-reaction');
+    anchor.appendChild(badge);
+    if (emojis.includes(popEmoji) && popEmoji === '❤️') flyHearts(row);
+    row.classList.add('has-reaction');
   }
 
   function flyHearts(row) {
@@ -2503,16 +2506,38 @@
     btn.addEventListener('click', () => pickReaction(currentReactionMessageId, emoji));
     reactionBar.appendChild(btn);
   });
+  // Nút phụ sao chép nội dung tin (chỉ hiện với tin có chữ).
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'reaction-btn reaction-copy';
+  copyBtn.textContent = '📋';
+  copyBtn.setAttribute('aria-label', 'Sao chép nội dung tin');
+  copyBtn.style.display = 'none';
+  copyBtn.addEventListener('click', () => {
+    if (!currentReactionMessage || !currentReactionMessage.content) return;
+    const text = currentReactionMessage.content;
+    const done = () => showAppToast('Đã sao chép');
+    const fail = () => showAppToast('Sao chép thấbại');
+    try {
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, fail);
+      else fail();
+    } catch { fail(); }
+    closeReactionBar();
+  });
+  reactionBar.appendChild(copyBtn);
   const appRoot = document.getElementById('app');
   appRoot?.appendChild(reactionBar);
 
   let currentReactionMessageId = null;
+  let currentReactionMessage = null;
 
   function openReactionBar(row, message) {
     if (!message || !currentUser) return;
     if (String(message.id).startsWith('tmp-') || message.sender_id === currentUser.id) return;
     if (!messageIds.has(message.id)) return;
     currentReactionMessageId = message.id;
+    currentReactionMessage = message;
+    copyBtn.style.display = message.content ? '' : 'none';
     reactionBar.classList.add('open');
     const rowRect = row.getBoundingClientRect();
     const appRect = appRoot?.getBoundingClientRect();
@@ -2528,6 +2553,7 @@
   function closeReactionBar() {
     reactionBar.classList.remove('open');
     currentReactionMessageId = null;
+    currentReactionMessage = null;
   }
 
   document.addEventListener('pointerdown', (event) => {
@@ -2577,10 +2603,16 @@
   let gestureRow = null;
   let gestureMessage = null;
   let longPressTimer = null;
+  let longPressed = false;
   let lastTapRow = null;
   let lastTapAt = 0;
 
   function setupRowGesture(row, message) {
+    // Chặn menu chọn chữ iOS và selectstart trên bong bóng.
+    const blockSelection = (event) => event.preventDefault();
+    row.addEventListener('contextmenu', blockSelection, { passive: false });
+    row.addEventListener('selectstart', blockSelection, { passive: false });
+
     row.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
       if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, .reaction-bar')) return;
@@ -2592,9 +2624,12 @@
       clearTimeout(longPressTimer);
       longPressTimer = setTimeout(() => {
         if (gestureMoved) return;
+        longPressed = true;
+        // Dọn vùng chọn đã lỡ xuất hiện rồi mở thanh cảm xúc.
+        try { window.getSelection()?.removeAllRanges(); } catch {}
         openReactionBar(row, message);
         try { navigator.vibrate?.(10); } catch {}
-      }, 400);
+      }, 350);
     }, { passive: true });
 
     row.addEventListener('pointermove', (event) => {
@@ -2609,8 +2644,10 @@
       clearTimeout(longPressTimer);
       const wasRow = gestureRow;
       const wasMessage = gestureMessage;
+      const wasLongPressed = longPressed;
+      longPressed = false;
       gestureStart = null; gestureRow = null; gestureMessage = null;
-      if (gestureMoved) return;
+      if (gestureMoved || wasLongPressed) return; // chặn click sinh ra sau nhấn giữ
       // Chạm đúp vào tin người khác → thả nhanh ❤️
       if (!wasRow || !wasMessage || String(wasMessage.id).startsWith('tmp-') || !currentUser || wasMessage.sender_id === currentUser.id) return;
       const now = Date.now();
@@ -2626,6 +2663,14 @@
       clearTimeout(longPressTimer);
       gestureStart = null; gestureRow = null; gestureMessage = null;
     }, { passive: true });
+
+    // Sau khi nhấn giữ mở thanh cảm xúc, chặn click sinh ra (không chọn chữ/mở link).
+    row.addEventListener('click', (event) => {
+      if (!longPressed) return;
+      longPressed = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
   }
 
   async function loadReactionsForMessages() {
