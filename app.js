@@ -2492,19 +2492,19 @@
     }
   }
 
-  // Thanh cảm xúc nổi trong #app, absolute → không đẩy layout.
-  const reactionBar = document.createElement('div');
-  reactionBar.id = 'reaction-bar';
-  reactionBar.className = 'reaction-bar';
-  reactionBar.setAttribute('role', 'toolbar');
-  reactionBar.setAttribute('aria-label', 'Thả cảm xúc');
+  // ─── Thanh cảm xúc: lớp phủ #rxLayer gắn 1 lần vào #app, không bao giờ render lại ───
+  const rxLayer = document.createElement('div');
+  rxLayer.id = 'rxLayer';
+  const rxBar = document.createElement('div');
+  rxBar.className = 'reaction-bar';
+  rxBar.setAttribute('role', 'toolbar');
+  rxBar.setAttribute('aria-label', 'Thả cảm xúc');
   REACTION_EMOJIS.forEach((emoji) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'reaction-btn';
     btn.textContent = emoji;
-    btn.addEventListener('click', () => pickReaction(currentReactionMessageId, emoji));
-    reactionBar.appendChild(btn);
+    rxBar.appendChild(btn);
   });
   // Nút phụ sao chép nội dung tin (chỉ hiện với tin có chữ).
   const copyBtn = document.createElement('button');
@@ -2513,96 +2513,121 @@
   copyBtn.textContent = '📋';
   copyBtn.setAttribute('aria-label', 'Sao chép nội dung tin');
   copyBtn.style.display = 'none';
-  copyBtn.addEventListener('click', () => {
-    if (!currentReactionMessage || !currentReactionMessage.content) return;
-    const text = currentReactionMessage.content;
-    const done = () => showAppToast('Đã sao chép');
-    const fail = () => showAppToast('Sao chép thấbại');
-    try {
-      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, fail);
-      else fail();
-    } catch { fail(); }
-    closeReactionBar();
-  });
-  reactionBar.appendChild(copyBtn);
+  rxBar.appendChild(copyBtn);
+  rxLayer.appendChild(rxBar);
   const appRoot = document.getElementById('app');
-  appRoot?.appendChild(reactionBar);
+  appRoot?.appendChild(rxLayer);
 
-  let currentReactionMessageId = null;
-  let currentReactionMessage = null;
-  let reactionBarArmed = false;
-  let reactionBarArmTimer = null;
+  let rxMessageId = null;
+  let rxPhase = 'idle'; // idle → holding → ready → idle
+  let rxReleased = false;
+  let rxReadyElapsed = false;
+  let rxReadyTimer = null;
+  let rxContent = null;
+  let ignoreClickUntil = 0;
 
-  function openReactionBar(row, message) {
-    if (!message || !currentUser) return;
-    if (String(message.id).startsWith('tmp-') || message.sender_id === currentUser.id) return;
-    if (!messageIds.has(message.id)) return;
-    currentReactionMessageId = message.id;
-    currentReactionMessage = message;
-    copyBtn.style.display = message.content ? '' : 'none';
-    reactionBar.classList.add('open');
-    // Cờ armed: 450ms đầu thanh "bất khả xâm phạm" — thả tay/click ma không đóng.
-    reactionBarArmed = false;
-    clearTimeout(reactionBarArmTimer);
-    reactionBarArmTimer = setTimeout(() => { reactionBarArmed = true; }, 450);
-    // Chặn sự kiện thả tay của chính lần nhấn giữ này.
-    const swallowRelease = (event) => { event.preventDefault(); };
-    document.addEventListener('touchend', swallowRelease, { once: true, capture: true, passive: false });
-    document.addEventListener('pointerup', swallowRelease, { once: true, capture: true, passive: false });
-    // Chặn click ma trong 500ms đầu.
-    const swallowClick = (event) => { event.preventDefault(); event.stopPropagation(); };
-    document.addEventListener('click', swallowClick, { once: true, capture: true });
-    setTimeout(() => { /* hết cửa sổ click ma */ }, 500);
-    const rowRect = row.getBoundingClientRect();
+  function setRxPhase(phase) {
+    rxPhase = phase;
+    rxLayer.dataset.phase = phase;
+    console.log('[rx] phase=' + phase);
+  }
+
+  // Chỉ lưu messageId + rect bong bóng lúc nhấn giữ; thanh nằm trong #rxLayer,
+  // không phụ thuộc DOM tin → không bị render/sync/realtime xóa.
+  function openReactionBar(messageId, bubbleRect, content) {
+    if (rxPhase !== 'idle' || !currentUser) return;
+    if (String(messageId).startsWith('tmp-')) return;
+    rxMessageId = String(messageId);
+    rxContent = content || null;
+    rxReleased = false;
+    rxReadyElapsed = false;
+    clearTimeout(rxReadyTimer);
+    copyBtn.style.display = rxContent ? '' : 'none';
+    rxLayer.classList.add('open');
+    // Đo thanh để đặt vị trí (phía trên bong bóng, thiếu chỗ thì dưới).
     const appRect = appRoot?.getBoundingClientRect();
-    if (!appRect) return;
-    const barRect = reactionBar.getBoundingClientRect();
-    const spaceAbove = rowRect.top - appRect.top;
-    const below = rowRect.bottom - appRect.top + 6;
-    let top = spaceAbove >= barRect.height + 10 ? rowRect.top - appRect.top - barRect.height - 6 : below;
-    top = Math.max(6, Math.min(top, appRect.height - barRect.height - 6));
-    reactionBar.style.top = `${Math.round(top)}px`;
+    const barRect = rxBar.getBoundingClientRect();
+    if (appRect && barRect.height > 0) {
+      const spaceAbove = bubbleRect.top - appRect.top;
+      const below = bubbleRect.bottom - appRect.top + 6;
+      let top = spaceAbove >= barRect.height + 10
+        ? bubbleRect.top - appRect.top - barRect.height - 6
+        : below;
+      top = Math.max(6, Math.min(top, appRect.height - barRect.height - 6));
+      rxBar.style.top = `${Math.round(top)}px`;
+    }
+    setRxPhase('holding');
+    // 'ready' CHỈ khi ĐÃ thả tay VÀ đã qua ≥600ms kể từ lúc mở.
+    const onRelease = () => {
+      rxReleased = true;
+      if (rxReadyElapsed) setRxPhase('ready');
+    };
+    ['pointerup', 'touchend', 'pointercancel', 'touchcancel'].forEach((type) => {
+      document.addEventListener(type, onRelease, { once: true, capture: true });
+    });
+    rxReadyTimer = setTimeout(() => {
+      rxReadyElapsed = true;
+      if (rxReleased) setRxPhase('ready');
+    }, 600);
   }
 
   function closeReactionBar() {
-    reactionBar.classList.remove('open');
-    currentReactionMessageId = null;
-    currentReactionMessage = null;
-    reactionBarArmed = false;
-    clearTimeout(reactionBarArmTimer);
+    if (rxPhase === 'idle') return;
+    rxLayer.classList.remove('open');
+    rxMessageId = null;
+    rxContent = null;
+    clearTimeout(rxReadyTimer);
+    ignoreClickUntil = Date.now() + 400; // chặn 1 click ma sau khi đóng
+    setRxPhase('idle');
   }
 
-  // Chạm RA NGOÀI thanh mới đóng (bắt ở capture, chỉ khi armed).
-  document.addEventListener('pointerdown', (event) => {
-    if (!reactionBar.classList.contains('open') || !reactionBarArmed) return;
-    if (reactionBar.contains(event.target)) return;
-    closeReactionBar();
-  }, { capture: true, passive: true });
-
-  // Chạm TRONG thanh: chặn lan để ô nhập không mất focus.
-  reactionBar.addEventListener('pointerdown', (event) => {
-    event.stopPropagation();
+  // holding: MỌI sự kiện vào layer bị bỏ qua. ready: pointerup NGOÀI #rxBar mới đóng.
+  rxLayer.addEventListener('pointerup', (event) => {
+    if (rxPhase !== 'ready') return;
+    if (rxBar.contains(event.target)) return; // trong bar: nút tự xử lý
     event.preventDefault();
+    event.stopPropagation();
+    closeReactionBar();
   }, { capture: true, passive: false });
 
-  // Esc đóng thanh.
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && reactionBar.classList.contains('open')) closeReactionBar();
-  });
+  // Chọn emoji / 📋 bằng pointerup trên nút (chỉ pointerup, không click).
+  rxBar.addEventListener('pointerup', (event) => {
+    if (rxPhase !== 'ready') return;
+    const btn = event.target.closest?.('.reaction-btn');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (btn === copyBtn) {
+      const done = () => showAppToast('Đã sao chép');
+      const fail = () => showAppToast('Sao chép thất bại');
+      try {
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(rxContent || '').then(done, fail);
+        else fail();
+      } catch { fail(); }
+    } else {
+      pickReaction(rxMessageId, btn.textContent);
+    }
+    closeReactionBar();
+  }, { passive: false });
 
-  // Cuộn #list quá 30px khi thanh mở → đóng (chỉ khi armed).
-  let reactionBarScrollBase = null;
-  messagesContainer.addEventListener('scroll', () => {
-    if (!reactionBar.classList.contains('open') || !reactionBarArmed) return;
-    const y = messagesContainer.scrollTop;
-    if (reactionBarScrollBase === null) { reactionBarScrollBase = y; return; }
-    if (Math.abs(y - reactionBarScrollBase) > 30) { reactionBarScrollBase = null; closeReactionBar(); }
-  }, { passive: true });
+  // pointerdown trong bar: giữ focus ô nhập, không cho lan ra ngoài.
+  rxBar.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true, passive: false });
 
-  // Nếu tin gốc bị gỡ khỏi DOM → đóng thanh.
+  // Chặn click ma trong 400ms sau khi đóng.
+  document.addEventListener('click', (event) => {
+    if (Date.now() < ignoreClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, { capture: true });
+
+  // Tin gốc bị gỡ khỏi DOM → đóng thanh.
   new MutationObserver(() => {
-    if (reactionBar.classList.contains('open') && currentReactionMessageId !== null
-      && !document.getElementById('msg-' + currentReactionMessageId)) {
+    if (rxPhase !== 'idle' && rxMessageId !== null
+      && !document.getElementById('msg-' + rxMessageId)) {
       closeReactionBar();
     }
   }).observe(messagesContainer, { childList: true });
@@ -2672,10 +2697,17 @@
         longPressed = true;
         // Dọn vùng chọn đã lỡ xuất hiện rồi mở thanh cảm xúc.
         try { window.getSelection()?.removeAllRanges(); } catch {}
-        openReactionBar(row, message);
+        const bubble = row.querySelector('.message-bubble, .w .b, .msg-image-wrap, .msg-sticker');
+        const rect = bubble ? bubble.getBoundingClientRect() : row.getBoundingClientRect();
+        openReactionBar(message.id, rect, message.content);
         try { navigator.vibrate?.(10); } catch {}
       }, 350);
-    }, { passive: true });
+    }, { passive: false });
+
+    // Nếu đang mở thanh cảm xúc mà có touchstart mới (ngón thứ hai): chặn menu hệ thống.
+    row.addEventListener('touchstart', (event) => {
+      if (rxPhase === 'holding' || rxPhase === 'ready') event.preventDefault();
+    }, { passive: false });
 
     row.addEventListener('pointermove', (event) => {
       if (!gestureStart) return;

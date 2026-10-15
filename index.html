@@ -1309,9 +1309,20 @@
     }
 
     /* Thả cảm xúc */
+    /* Lớp phủ chỉ tồn tại để nhận chạm ngoài; thanh nằm trong, không bị render xóa. */
+    #rxLayer {
+      position: fixed;
+      inset: 0;
+      display: none;
+      z-index: 200;
+      background: transparent;
+      touch-action: none;
+    }
+    #rxLayer.open { display: block; pointer-events: auto; }
+    #rxLayer.open .reaction-bar { display: flex; pointer-events: auto; }
+    #rxBar { position: absolute; left: 12px; }
     .reaction-bar {
       position: absolute;
-      display: none;
       gap: 4px;
       padding: 4px;
       border-radius: 22px;
