@@ -750,6 +750,7 @@
     .message-row.other {
       align-self: flex-start;
       align-items: flex-start;
+      max-width: calc(100% - 46px);
     }
 
     .message-bubble {
@@ -1309,60 +1310,121 @@
     }
 
     /* Thả cảm xúc */
-    /* Lớp phủ chỉ tồn tại để nhận chạm ngoài; thanh nằm trong, không bị render xóa. */
-    #rxLayer {
+    .message-bubble-wrap {
+      position: relative;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
+      max-width: 100%;
+    }
+    .rx-open-btn {
+      position: absolute;
+      left: calc(100% + 6px);
+      bottom: 4px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 0;
+      background: rgba(255, 255, 255, .85);
+      font-size: 14px;
+      line-height: 28px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: .55;
+      padding: 0;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      z-index: 2;
+    }
+    .rx-open-btn::before {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+    }
+    .rx-open-btn:active {
+      opacity: 1;
+      background: #ffffff;
+    }
+
+    #rxBackdrop {
       position: fixed;
       inset: 0;
-      display: none;
-      z-index: 200;
+      z-index: 500;
       background: transparent;
-      touch-action: none;
+      display: none;
     }
-    #rxLayer.open { display: block; pointer-events: auto; }
-    #rxLayer.open .reaction-bar { display: flex; pointer-events: auto; animation: reaction-bar-in 150ms ease; }
-    .reaction-bar {
-      position: absolute;
-      left: 12px;
-      gap: 4px;
-      padding: 4px;
-      border-radius: 22px;
-      background: rgba(255, 255, 255, .9);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, .16);
-      z-index: 60;
-      transform: scale(.9);
+    #rxBackdrop.open {
+      display: block;
+    }
+
+    #rxBar {
+      position: fixed;
+      z-index: 501;
+      display: flex;
+      visibility: hidden;
       opacity: 0;
+      transform: scale(.92);
+      transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+      background: rgba(255, 255, 255, .92);
+      border-radius: 24px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, .16);
+      padding: 4px;
+      gap: 2px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      max-width: min(340px, calc(100vw - 16px));
       pointer-events: none;
-      transition: opacity 150ms ease, transform 150ms ease;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
       contain: layout paint;
       will-change: transform, opacity;
     }
-    .reaction-bar.open {
-      display: flex;
+    #rxBar.open {
+      visibility: visible;
+      opacity: 1;
+      transform: scale(1);
       pointer-events: auto;
     }
     @keyframes reaction-bar-in {
       from { opacity: 0; transform: scale(.9); }
       to { opacity: 1; transform: scale(1); }
     }
-    .reaction-btn {
+    .rx-bar-btn {
       width: 44px;
       height: 44px;
+      min-width: 44px;
       padding: 0;
       border: 0;
       border-radius: 50%;
       background: transparent;
-      font-size: 20px;
-      line-height: 1;
+      font-size: 22px;
+      line-height: 44px;
+      text-align: center;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 80ms ease, background 80ms ease;
     }
-    .reaction-btn:active { background: #ffe0ec; }
-    .reaction-copy {
-      width: 32px;
-      font-size: 16px;
-      margin-left: 2px;
+    .rx-bar-btn:active {
+      background: rgba(233, 30, 99, .15);
+      transform: scale(1.15);
+    }
+    .rx-bar-btn.rx-copy {
+      font-size: 18px;
       border-left: 1px solid rgba(0, 0, 0, .1);
-      border-radius: 0 20px 20px 0;
+      border-radius: 12px;
     }
 
     .reaction-badge {
@@ -1406,8 +1468,24 @@
       .heart-fly { animation-duration: 1ms; }
     }
     @media (prefers-color-scheme: dark) {
-      .reaction-bar { background: rgba(58, 29, 42, .92); }
-      .reaction-btn:active { background: #5a2d40; }
+      .rx-open-btn {
+        background: rgba(58, 29, 42, .88);
+        color: #fff;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+      }
+      .rx-open-btn:active {
+        background: rgba(78, 39, 56, .98);
+      }
+      #rxBar {
+        background: rgba(48, 24, 34, .94);
+        box-shadow: 0 4px 18px rgba(0, 0, 0, .45);
+      }
+      .rx-bar-btn:active {
+        background: rgba(233, 30, 99, .25);
+      }
+      .rx-bar-btn.rx-copy {
+        border-left-color: rgba(255, 255, 255, .15);
+      }
       .reaction-badge { background: rgba(58, 29, 42, .94); }
     }
 

@@ -2333,6 +2333,8 @@
 
     const replyQuote = message.reply_to ? createReplyQuote(message.reply_to) : null;
 
+    const canReact = !isSelf && !String(message.id).startsWith('tmp-');
+
     if (message.is_sticker) {
       row.classList.add('sticker-message');
       if (replyQuote) row.appendChild(replyQuote);
@@ -2346,7 +2348,15 @@
       img.alt = 'sticker';
       if (options.localImageUrl) img.src = options.localImageUrl;
       else getSignedUrl(message.image_path).then((url) => { if (url) img.src = url; });
-      row.appendChild(img);
+      if (canReact) {
+        const wrap = document.createElement('div');
+        wrap.className = 'message-bubble-wrap';
+        wrap.appendChild(img);
+        wrap.appendChild(createRxOpenBtn(message.id, ''));
+        row.appendChild(wrap);
+      } else {
+        row.appendChild(img);
+      }
     } else if (message.image_path) {
       const wrap = document.createElement('div');
       wrap.className = 'msg-image-wrap';
@@ -2372,13 +2382,23 @@
         imgOverlay.classList.add('open');
       });
       wrap.appendChild(img);
-      row.appendChild(wrap);
+      let caption = null;
       if (message.content) {
-        const caption = document.createElement('div');
+        caption = document.createElement('div');
         caption.className = 'message-bubble';
         caption.style.marginTop = '4px';
         caption.textContent = message.content;
-        row.appendChild(caption);
+      }
+      if (canReact) {
+        const bubbleWrap = document.createElement('div');
+        bubbleWrap.className = 'message-bubble-wrap';
+        bubbleWrap.appendChild(wrap);
+        if (caption) bubbleWrap.appendChild(caption);
+        bubbleWrap.appendChild(createRxOpenBtn(message.id, message.content || ''));
+        row.appendChild(bubbleWrap);
+      } else {
+        row.appendChild(wrap);
+        if (caption) row.appendChild(caption);
       }
     } else {
       const bubble = document.createElement('div');
@@ -2389,7 +2409,16 @@
       content.textContent = message.content || '';
       if (options.hideTextContent) content.style.opacity = '0';
       bubble.appendChild(content);
-      row.appendChild(bubble);
+
+      if (canReact) {
+        const bubbleWrap = document.createElement('div');
+        bubbleWrap.className = 'message-bubble-wrap';
+        bubbleWrap.appendChild(bubble);
+        bubbleWrap.appendChild(createRxOpenBtn(message.id, message.content || ''));
+        row.appendChild(bubbleWrap);
+      } else {
+        row.appendChild(bubble);
+      }
     }
 
     const time = document.createElement('div');
@@ -2492,111 +2521,108 @@
     }
   }
 
-  // ─── Thanh cảm xúc: lớp phủ #rxLayer gắn 1 lần vào #app, không bao giờ render lại ───
-  const rxLayer = document.createElement('div');
-  rxLayer.id = 'rxLayer';
+  // ─── Nút mở thanh cảm xúc 😊+ ───
+  function createRxOpenBtn(messageId, content) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rx-open-btn';
+    btn.textContent = '😊+';
+    btn.setAttribute('aria-label', 'Thả cảm xúc');
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openReactionBar(messageId, btn.getBoundingClientRect(), content);
+    });
+    return btn;
+  }
+
+  // ─── Thanh cảm xúc: #rxBackdrop và #rxBar gắn 1 lần vào #app ───
+  const rxBackdrop = document.createElement('div');
+  rxBackdrop.id = 'rxBackdrop';
+
   const rxBar = document.createElement('div');
-  rxBar.className = 'reaction-bar';
+  rxBar.id = 'rxBar';
   rxBar.setAttribute('role', 'toolbar');
   rxBar.setAttribute('aria-label', 'Thả cảm xúc');
+
   REACTION_EMOJIS.forEach((emoji) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'reaction-btn';
+    btn.className = 'rx-bar-btn';
     btn.textContent = emoji;
     rxBar.appendChild(btn);
   });
-  // Nút phụ sao chép nội dung tin (chỉ hiện với tin có chữ).
+
   const copyBtn = document.createElement('button');
   copyBtn.type = 'button';
-  copyBtn.className = 'reaction-btn reaction-copy';
+  copyBtn.className = 'rx-bar-btn rx-copy';
   copyBtn.textContent = '📋';
   copyBtn.setAttribute('aria-label', 'Sao chép nội dung tin');
   copyBtn.style.display = 'none';
   rxBar.appendChild(copyBtn);
-  rxLayer.appendChild(rxBar);
+
   const appRoot = document.getElementById('app');
-  appRoot?.appendChild(rxLayer);
+  appRoot?.appendChild(rxBackdrop);
+  appRoot?.appendChild(rxBar);
 
   let rxMessageId = null;
-  let rxPhase = 'idle'; // idle → holding → ready → idle
-  let rxReleased = false;
-  let rxReadyElapsed = false;
-  let rxReadyTimer = null;
   let rxContent = null;
-  let ignoreClickUntil = 0;
 
-  function setRxPhase(phase) {
-    rxPhase = phase;
-    rxLayer.dataset.phase = phase;
-    console.log('[rx] phase=' + phase);
-  }
-
-  // Chỉ lưu messageId + rect bong bóng lúc nhấn giữ; thanh nằm trong #rxLayer,
-  // không phụ thuộc DOM tin → không bị render/sync/realtime xóa.
-  function openReactionBar(messageId, bubbleRect, content) {
-    if (rxPhase !== 'idle' || !currentUser) return;
+  function openReactionBar(messageId, btnRect, content) {
+    if (!currentUser || !messageId) return;
     if (String(messageId).startsWith('tmp-')) return;
     rxMessageId = String(messageId);
-    rxContent = content || null;
-    rxReleased = false;
-    rxReadyElapsed = false;
-    clearTimeout(rxReadyTimer);
+    rxContent = content || messageCache.get(rxMessageId)?.content || null;
     copyBtn.style.display = rxContent ? '' : 'none';
-    rxLayer.classList.add('open');
-    // Đo thanh để đặt vị trí (phía trên bong bóng, thiếu chỗ thì dưới).
-    const appRect = appRoot?.getBoundingClientRect();
+
+    rxBackdrop.classList.add('open');
+    rxBar.classList.add('open');
+
     const barRect = rxBar.getBoundingClientRect();
-    if (appRect && barRect.height > 0) {
-      const spaceAbove = bubbleRect.top - appRect.top;
-      const below = bubbleRect.bottom - appRect.top + 6;
-      let top = spaceAbove >= barRect.height + 10
-        ? bubbleRect.top - appRect.top - barRect.height - 6
-        : below;
-      top = Math.max(6, Math.min(top, appRect.height - barRect.height - 6));
-      rxBar.style.top = `${Math.round(top)}px`;
+    const barWidth = barRect.width || 310;
+    const barHeight = barRect.height || 52;
+
+    const header = document.querySelector('.chat-header');
+    const headerBottom = header ? header.getBoundingClientRect().bottom : 50;
+    const footer = document.querySelector('.chat-input-bar');
+    const footerTop = footer ? footer.getBoundingClientRect().top : (window.innerHeight - 60);
+
+    let left = btnRect.left + (btnRect.width / 2) - (barWidth / 2);
+    left = Math.max(8, Math.min(left, window.innerWidth - barWidth - 8));
+
+    let top = btnRect.top - barHeight - 8;
+    if (top < headerBottom + 6) {
+      top = btnRect.bottom + 8;
     }
-    setRxPhase('holding');
-    // 'ready' CHỈ khi ĐÃ thả tay VÀ đã qua ≥600ms kể từ lúc mở.
-    const onRelease = () => {
-      rxReleased = true;
-      if (rxReadyElapsed) setRxPhase('ready');
-    };
-    ['pointerup', 'touchend', 'pointercancel', 'touchcancel'].forEach((type) => {
-      document.addEventListener(type, onRelease, { once: true, capture: true });
-    });
-    rxReadyTimer = setTimeout(() => {
-      rxReadyElapsed = true;
-      if (rxReleased) setRxPhase('ready');
-    }, 600);
+    top = Math.max(headerBottom + 6, Math.min(top, footerTop - barHeight - 6));
+
+    rxBar.style.left = `${Math.round(left)}px`;
+    rxBar.style.top = `${Math.round(top)}px`;
   }
 
   function closeReactionBar() {
-    if (rxPhase === 'idle') return;
-    rxLayer.classList.remove('open');
+    if (rxMessageId === null) return;
+    rxBar.classList.remove('open');
+    rxBackdrop.classList.remove('open');
     rxMessageId = null;
     rxContent = null;
-    clearTimeout(rxReadyTimer);
-    ignoreClickUntil = Date.now() + 400; // chặn 1 click ma sau khi đóng
-    setRxPhase('idle');
   }
 
-  // holding: MỌI sự kiện vào layer bị bỏ qua. ready: pointerup NGOÀI #rxBar mới đóng.
-  rxLayer.addEventListener('pointerup', (event) => {
-    if (rxPhase !== 'ready') return;
-    if (rxBar.contains(event.target)) return; // trong bar: nút tự xử lý
-    event.preventDefault();
-    event.stopPropagation();
-    closeReactionBar();
-  }, { capture: true, passive: false });
+  // Chặn pointerdown/mousedown trong #rxBar để ô nhập không mất focus/caret
+  rxBar.addEventListener('pointerdown', (event) => event.preventDefault());
+  rxBar.addEventListener('mousedown', (event) => event.preventDefault());
 
-  // Chọn emoji / 📋 bằng pointerup trên nút (chỉ pointerup, không click).
-  rxBar.addEventListener('pointerup', (event) => {
-    if (rxPhase !== 'ready') return;
-    const btn = event.target.closest?.('.reaction-btn');
-    if (!btn) return;
+  // Đóng khi chạm ra ngoài vào #rxBackdrop
+  rxBackdrop.addEventListener('click', (event) => {
     event.preventDefault();
-    event.stopPropagation();
+    closeReactionBar();
+  });
+
+  // Chọn cảm xúc / sao chép bằng sự kiện 'click' duy nhất
+  rxBar.addEventListener('click', (event) => {
+    const btn = event.target.closest?.('.rx-bar-btn');
+    if (!btn || !rxMessageId) return;
+    event.preventDefault();
     if (btn === copyBtn) {
       const done = () => showAppToast('Đã sao chép');
       const fail = () => showAppToast('Sao chép thất bại');
@@ -2605,29 +2631,14 @@
         else fail();
       } catch { fail(); }
     } else {
-      pickReaction(rxMessageId, btn.textContent);
+      pickReaction(rxMessageId, btn.textContent.trim());
     }
     closeReactionBar();
-  }, { passive: false });
+  });
 
-  // pointerdown trong bar: giữ focus ô nhập, không cho lan ra ngoài.
-  rxBar.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-  }, { capture: true, passive: false });
-
-  // Chặn click ma trong 400ms sau khi đóng.
-  document.addEventListener('click', (event) => {
-    if (Date.now() < ignoreClickUntil) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  }, { capture: true });
-
-  // Tin gốc bị gỡ khỏi DOM → đóng thanh.
+  // Tin gốc bị gỡ khỏi DOM → đóng thanh
   new MutationObserver(() => {
-    if (rxPhase !== 'idle' && rxMessageId !== null
-      && !document.getElementById('msg-' + rxMessageId)) {
+    if (rxMessageId !== null && !document.getElementById('msg-' + rxMessageId)) {
       closeReactionBar();
     }
   }).observe(messagesContainer, { childList: true });
@@ -2661,93 +2672,48 @@
       if (willDelete) addReactionToStore(messageId, currentUser.id, current);
       else removeReactionFromStore(messageId, currentUser.id);
       renderReactionBadges(row);
-      saveReactionsFromCache();
+      saveReactionsToCache();
       showAppToast('Thả cảm xúc thất bại');
     }
   }
 
-  // Vuốt trả lời dùng pointer (touchstart/move/end); đặt pointerdown/pointerup cho
-  // double-tap vào không xung đột vì chỉ kích hoạt khi không vuốt.
-  let gestureStart = null;
-  let gestureMoved = false;
-  let gestureRow = null;
-  let gestureMessage = null;
-  let longPressTimer = null;
-  let longPressed = false;
+  // Chạm đúp trên tin người khác → thả nhanh ❤️
   let lastTapRow = null;
   let lastTapAt = 0;
+  let tapStartPos = null;
 
   function setupRowGesture(row, message) {
-    // Chặn menu chọn chữ iOS và selectstart trên bong bóng.
-    const blockSelection = (event) => event.preventDefault();
-    row.addEventListener('contextmenu', blockSelection, { passive: false });
-    row.addEventListener('selectstart', blockSelection, { passive: false });
-
     row.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse' && event.button !== 0) return;
-      if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, .reaction-bar')) return;
-      gestureStart = { x: event.clientX, y: event.clientY };
-      gestureMoved = false;
-      gestureRow = row;
-      gestureMessage = message;
-      if (String(message.id).startsWith('tmp-') || !currentUser || message.sender_id === currentUser.id) return;
-      clearTimeout(longPressTimer);
-      longPressTimer = setTimeout(() => {
-        if (gestureMoved) return;
-        longPressed = true;
-        // Dọn vùng chọn đã lỡ xuất hiện rồi mở thanh cảm xúc.
-        try { window.getSelection()?.removeAllRanges(); } catch {}
-        const bubble = row.querySelector('.message-bubble, .w .b, .msg-image-wrap, .msg-sticker');
-        const rect = bubble ? bubble.getBoundingClientRect() : row.getBoundingClientRect();
-        openReactionBar(message.id, rect, message.content);
-        try { navigator.vibrate?.(10); } catch {}
-      }, 350);
-    }, { passive: false });
-
-    // Nếu đang mở thanh cảm xúc mà có touchstart mới (ngón thứ hai): chặn menu hệ thống.
-    row.addEventListener('touchstart', (event) => {
-      if (rxPhase === 'holding' || rxPhase === 'ready') event.preventDefault();
-    }, { passive: false });
+      if (event.target.closest?.('a, button, img, .reply-quote, .reaction-badge, #rxBar, .rx-open-btn')) return;
+      tapStartPos = { x: event.clientX, y: event.clientY };
+    }, { passive: true });
 
     row.addEventListener('pointermove', (event) => {
-      if (!gestureStart) return;
-      if (Math.hypot(event.clientX - gestureStart.x, event.clientY - gestureStart.y) > 10) {
-        gestureMoved = true;
-        clearTimeout(longPressTimer);
+      if (!tapStartPos) return;
+      if (Math.hypot(event.clientX - tapStartPos.x, event.clientY - tapStartPos.y) > 10) {
+        tapStartPos = null;
       }
     }, { passive: true });
 
     row.addEventListener('pointerup', () => {
-      clearTimeout(longPressTimer);
-      const wasRow = gestureRow;
-      const wasMessage = gestureMessage;
-      const wasLongPressed = longPressed;
-      longPressed = false;
-      gestureStart = null; gestureRow = null; gestureMessage = null;
-      if (gestureMoved || wasLongPressed) return; // chặn click sinh ra sau nhấn giữ
-      // Chạm đúp vào tin người khác → thả nhanh ❤️
-      if (!wasRow || !wasMessage || String(wasMessage.id).startsWith('tmp-') || !currentUser || wasMessage.sender_id === currentUser.id) return;
+      if (!tapStartPos) return;
+      tapStartPos = null;
+      if (String(message.id).startsWith('tmp-') || !currentUser || message.sender_id === currentUser.id) return;
       const now = Date.now();
-      if (lastTapRow === wasRow && now - lastTapAt < 350) {
-        lastTapRow = null; lastTapAt = 0;
-        pickReaction(wasMessage.id, '❤️');
+      if (lastTapRow === row && now - lastTapAt < 300) {
+        lastTapRow = null;
+        lastTapAt = 0;
+        pickReaction(message.id, '❤️');
       } else {
-        lastTapRow = wasRow; lastTapAt = now;
+        lastTapRow = row;
+        lastTapAt = now;
       }
     });
 
     row.addEventListener('pointercancel', () => {
-      clearTimeout(longPressTimer);
-      gestureStart = null; gestureRow = null; gestureMessage = null;
+      tapStartPos = null;
     }, { passive: true });
-
-    // Sau khi nhấn giữ mở thanh cảm xúc, chặn click sinh ra (không chọn chữ/mở link).
-    row.addEventListener('click', (event) => {
-      if (!longPressed) return;
-      longPressed = false;
-      event.preventDefault();
-      event.stopPropagation();
-    }, true);
   }
 
   async function loadReactionsForMessages() {
