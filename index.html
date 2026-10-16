@@ -1847,6 +1847,280 @@
     }
     .send-gather-overlay { height: var(--vvh, 100dvh); bottom: auto; }
     input, textarea, select, [contenteditable] { font-size: 16px !important; }
+
+    /* 20/10: banner + lớp hoa rơi + thiệp */
+    .festive-banner {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
+      min-height: 36px;
+      padding: 2px max(8px, env(safe-area-inset-right)) 2px max(8px, env(safe-area-inset-left));
+      background: #e91e63;
+      color: #fff;
+      position: relative;
+      z-index: 9;
+      overflow: hidden;
+    }
+    .festive-banner[hidden] { display: none; }
+    /* Nền gradient "thở": lớp riêng trượt qua lại, không đổi kích thước banner */
+    .festive-banner::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 200%;
+      background: linear-gradient(90deg, #e91e63, #ff6f91, #ff9ecb, #ff6f91, #e91e63);
+      animation: festive-breathe 8s ease-in-out infinite alternate;
+      will-change: transform;
+      pointer-events: none;
+    }
+    @keyframes festive-breathe {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+    /* Ánh sáng quét chéo mỗi 3.5s */
+    .festive-banner::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -80px;
+      width: 60px;
+      background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .55), transparent);
+      animation: festive-shine 3.5s ease-in-out infinite;
+      will-change: transform;
+      pointer-events: none;
+      z-index: 2;
+    }
+    @keyframes festive-shine {
+      0% { transform: translateX(0) skewX(-20deg); }
+      35%, 100% { transform: translateX(120vw) skewX(-20deg); }
+    }
+    /* Vào: trượt từ trên xuống một lần */
+    .festive-banner.festive-enter { animation: festive-in 350ms ease; }
+    @keyframes festive-in {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .festive-side { position: relative; flex-shrink: 0; width: 22px; height: 24px; }
+    .festive-rose { position: absolute; inset: 0; display: grid; place-items: center; font-size: 16px; line-height: 1; animation: festive-heartbeat 1.2s ease-in-out infinite; }
+    @keyframes festive-heartbeat {
+      0%, 100% { transform: scale(1); }
+      25% { transform: scale(1.25); }
+      45% { transform: scale(1); }
+    }
+    .festive-sp { position: absolute; font-size: 8px; line-height: 1; animation: festive-sparkle 1.8s ease-in-out infinite; }
+    .festive-sp.s1 { top: -2px; left: 0; animation-delay: 0s; }
+    .festive-sp.s2 { top: 4px; right: -4px; animation-delay: .6s; }
+    .festive-sp.s3 { bottom: -2px; left: 5px; animation-delay: 1.2s; }
+    @keyframes festive-sparkle {
+      0%, 100% { opacity: .2; transform: scale(.7); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+    .festive-marquee {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      overflow: hidden;
+      cursor: pointer;
+      text-align: left;
+      min-height: 36px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+      z-index: 1;
+      transition: transform 120ms ease;
+    }
+    .festive-marquee:active { transform: scale(.97); }
+    .festive-side, .festive-close { position: relative; z-index: 1; }
+    .festive-track {
+      display: inline-flex;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 700;
+      animation: festive-marquee 14s linear infinite;
+      will-change: transform;
+    }
+    .festive-track span { padding-right: 48px; }
+    @keyframes festive-marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+    .festive-ico { display: inline-block; animation: festive-bob 1.6s ease-in-out infinite; }
+    @keyframes festive-bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    .festive-name { animation: festive-name-glow 2.4s ease-in-out infinite; }
+    @keyframes festive-name-glow {
+      0%, 100% { opacity: .85; }
+      50% { opacity: 1; }
+    }
+    /* Viền tia sáng đáy chạy ngang */
+    .festive-beam {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      height: 2px;
+      width: 40%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .9), transparent);
+      animation: festive-beam 5s linear infinite;
+      will-change: transform;
+      pointer-events: none;
+      z-index: 1;
+    }
+    @keyframes festive-beam {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(250%); }
+    }
+    /* Cánh hoa bay ngang trong banner, dưới chữ */
+    .festive-fly {
+      position: absolute;
+      right: -20px;
+      line-height: 1;
+      opacity: 0;
+      animation-name: festive-fly;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+      will-change: transform, opacity;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @keyframes festive-fly {
+      0% { transform: translateX(10vw) translateY(4px); opacity: 0; }
+      10% { opacity: .8; }
+      50% { transform: translateX(-45vw) translateY(-4px); }
+      90% { opacity: .8; }
+      100% { transform: translateX(-105vw) translateY(4px); opacity: 0; }
+    }
+    .festive-close {
+      flex: 0 0 auto;
+      min-width: 44px;
+      min-height: 36px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .festive-close:active { background: rgba(255, 255, 255, .25); }
+    .festive-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .festive-layer[hidden] { display: none; }
+    .festive-petal {
+      position: absolute;
+      top: -40px;
+      line-height: 1;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+    .festive-toast {
+      position: absolute;
+      left: 50%;
+      top: 38%;
+      transform: translate(-50%, -50%);
+      z-index: 404;
+      max-width: 86vw;
+      padding: 14px 22px;
+      border-radius: 20px;
+      background: rgba(173, 20, 87, .95);
+      color: #fff;
+      font-size: 20px;
+      font-weight: 800;
+      text-align: center;
+      pointer-events: none;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .25);
+      animation: festive-toast-in 300ms ease;
+    }
+    @keyframes festive-toast-in {
+      from { opacity: 0; transform: translate(-50%, -50%) scale(.8); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    .festive-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 402;
+      background: transparent;
+      display: none;
+    }
+    .festive-backdrop.open { display: block; }
+    .festive-sheet {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: calc(env(safe-area-inset-bottom) + 90px);
+      z-index: 403;
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .2);
+      padding: 18px 16px;
+      display: none;
+      text-align: center;
+    }
+    .festive-sheet.open { display: block; animation: festive-sheet-in 180ms ease; }
+    @keyframes festive-sheet-in {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .festive-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+    .festive-long { font-size: 14px; line-height: 1.55; margin: 0 0 14px; }
+    .festive-actions { display: flex; gap: 8px; }
+    .festive-send {
+      flex: 1;
+      min-height: 44px;
+      border: 0;
+      border-radius: 14px;
+      background: #e91e63;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .festive-close-btn {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 18px;
+      border: 0;
+      border-radius: 14px;
+      background: #fce4ec;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    @media (prefers-color-scheme: dark) {
+      .festive-banner { background: #ad1457; }
+      .festive-banner::before { background: linear-gradient(90deg, #ad1457, #c2185b, #d6336c, #c2185b, #ad1457); background-size: 200% 100%; }
+      .festive-banner::after { background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .35), transparent); }
+      .festive-sheet { background: #3a1d2a; color: #fff; }
+      .festive-close-btn { background: #5a2d40; color: #fff; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .festive-track { animation: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+      .festive-track span + span { display: none; }
+      .festive-side { animation: none; }
+      .festive-banner::before, .festive-banner::after,
+      .festive-rose, .festive-sp, .festive-ico, .festive-name,
+      .festive-beam, .festive-fly,
+      .festive-banner.festive-enter { animation: none !important; }
+      .festive-fly, .festive-beam, .festive-sp { display: none; }
+    }
+    body.festive-paused .festive-banner,
+    body.festive-paused .festive-banner *,
+    body.festive-paused .festive-banner::before,
+    body.festive-paused .festive-banner::after { animation-play-state: paused !important; }
   </style>
 </head>
 
@@ -1897,6 +2171,20 @@
         <button id="btn-logout" class="btn-logout">Thoát</button>
       </div>
     </header>
+    <div id="festive-banner" class="festive-banner" hidden>
+      <span class="festive-side" aria-hidden="true"><span class="festive-rose">🌹</span><span class="festive-sp s1">✨</span><span class="festive-sp s2">✨</span><span class="festive-sp s3">✨</span></span>
+      <button id="festive-open" class="festive-marquee" type="button" aria-label="Mở thiệp 20/10"><span class="festive-track"><span id="festive-text-a"></span><span id="festive-text-b" aria-hidden="true"></span></span></button>
+      <span class="festive-side" aria-hidden="true"><span class="festive-rose">🌹</span><span class="festive-sp s1">✨</span><span class="festive-sp s2">✨</span><span class="festive-sp s3">✨</span></span>
+      <button id="festive-hide" class="festive-close" type="button" aria-label="Thu gọn">✕</button>
+      <span class="festive-beam" aria-hidden="true"></span>
+      <span class="festive-fly" style="top:2px;font-size:10px;animation-duration:7s;animation-delay:-1s" aria-hidden="true">🌸</span>
+      <span class="festive-fly" style="top:10px;font-size:14px;animation-duration:9s;animation-delay:-4s" aria-hidden="true">🌸</span>
+      <span class="festive-fly" style="top:5px;font-size:11px;animation-duration:8s;animation-delay:-6s" aria-hidden="true">🌸</span>
+      <span class="festive-fly" style="top:14px;font-size:10px;animation-duration:10s;animation-delay:-3s" aria-hidden="true">🌸</span>
+      <span class="festive-fly" style="top:0px;font-size:13px;animation-duration:8.5s;animation-delay:-7s" aria-hidden="true">🌸</span>
+      <span class="festive-fly" style="top:18px;font-size:11px;animation-duration:9.5s;animation-delay:-5s" aria-hidden="true">🌸</span>
+    </div>
+    <div id="festive" class="festive-layer" aria-hidden="true" hidden></div>
     <input type="file" id="cover-file" accept="image/*"
       style="position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none">
 
@@ -1912,6 +2200,15 @@
       <div class="streak-today" id="streak-today-text"></div>
       <div class="streak-week" id="streak-week"></div>
       <button id="streak-close" class="streak-close" type="button">Đóng</button>
+    </section>
+    <div id="festive-backdrop" class="festive-backdrop"></div>
+    <section id="festive-sheet" class="festive-sheet" role="dialog" aria-label="Thiệp 20/10">
+      <div class="festive-title">Chúc mừng 20/10 💐</div>
+      <p id="festive-long" class="festive-long"></p>
+      <div class="festive-actions">
+        <button id="festive-send" class="festive-send" type="button">Gửi lời chúc</button>
+        <button id="festive-close" class="festive-close-btn" type="button">Đóng</button>
+      </div>
     </section>
 
     <main class="chat-messages" id="messages-container">

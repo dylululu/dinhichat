@@ -1620,11 +1620,13 @@
     try { navigator.vibrate?.(10); } catch {}
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const rect = btnSend.getBoundingClientRect();
-    const count = 3 + Math.floor(Math.random() * 3);
+    const festiveDay = festiveOn && !festiveReducedMotion();
+    const glyphs = festiveDay ? ['🌸', '🌷', '💗', '✨', '🌹', '💐'] : null;
+    const count = festiveDay ? 4 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count && activeHeartCount < 8; i++) {
       const heart = document.createElement('span');
       heart.className = 'send-heart';
-      heart.textContent = Math.random() < .5 ? '💗' : '💕';
+      heart.textContent = festiveDay ? glyphs[Math.floor(Math.random() * glyphs.length)] : (Math.random() < .5 ? '💗' : '💕');
       heart.style.setProperty('--heart-x', `${rect.left + rect.width / 2 - 9}px`);
       heart.style.setProperty('--heart-y', `${rect.top + 2}px`);
       heart.style.setProperty('--heart-size', `${12 + Math.floor(Math.random() * 7)}px`);
@@ -3449,6 +3451,231 @@
   streakClose?.addEventListener('click', closeStreakSheet);
   streakBackdrop?.addEventListener('click', closeStreakSheet);
 
+  // ─── 20/10: banner + hoa rơi + thiệp ─────────────────────────────────────────
+  const FESTIVE_SEEN_KEY = 'dnc_2010_seen';
+  const FESTIVE_FLOWERS = ['🌸', '💐', '🌷', '🌹', '✨', '💗'];
+  const FESTIVE_WISH = 'Chúc mừng 20/10 nhaaa 💐🌸 Iu dấu luôn xinh đẹp, vui vẻ và hạnh phúc nhé 💕';
+  let festiveOn = false;
+  let festiveHiddenSession = false;
+  let festiveAnims = [];
+  const festiveBanner = document.getElementById('festive-banner');
+  const festiveTextA = document.getElementById('festive-text-a');
+  const festiveTextB = document.getElementById('festive-text-b');
+  const festiveLayer = document.getElementById('festive');
+  const festiveOpenBtn = document.getElementById('festive-open');
+  const festiveHideBtn = document.getElementById('festive-hide');
+  const festiveBackdrop = document.getElementById('festive-backdrop');
+  const festiveSheet = document.getElementById('festive-sheet');
+  const festiveLong = document.getElementById('festive-long');
+  const festiveSendBtn = document.getElementById('festive-send');
+  const festiveCloseBtn = document.getElementById('festive-close');
+
+  function vnDateString() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    } catch {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+  }
+
+  function isEvent2010() {
+    try {
+      if (new URLSearchParams(location.search).get('event') === '2010') return true;
+    } catch {}
+    return vnDateString().slice(5) === '10-20';
+  }
+
+  function festiveReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function festiveOtherName() {
+    try {
+      if (typeof streakOtherName === 'function') return streakOtherName();
+    } catch {}
+    if (!currentUser) return 'Iu dấu';
+    for (const p of profilesMap.values()) {
+      if (p.id !== currentUser.id) return p.name || 'Iu dấu';
+    }
+    return 'Iu dấu';
+  }
+
+  function setFestiveText(el, name) {
+    if (!el) return;
+    el.textContent = '';
+    const parts = [
+      ['ico', '🌸'], ['txt', ' Chúc mừng 20/10 '], ['ico', '🌸'],
+      ['txt', ' Chúc '], ['name', name],
+      ['txt', ' luôn xinh đẹp, hạnh phúc và được yêu thương thật nhiều '],
+      ['ico', '💐'], ['txt', ' Yêu nhiều lắm '], ['ico', '💕']
+    ];
+    let icoIdx = 0;
+    parts.forEach(([kind, val]) => {
+      if (kind === 'txt') { el.appendChild(document.createTextNode(val)); return; }
+      const s = document.createElement('span');
+      if (kind === 'ico') {
+        s.className = 'festive-ico';
+        s.style.animationDelay = (icoIdx * 0.25) + 's';
+        icoIdx++;
+      } else {
+        s.className = 'festive-name';
+      }
+      s.textContent = val;
+      el.appendChild(s);
+    });
+  }
+
+  function applyFestive() {
+    const show = festiveOn && !festiveHiddenSession;
+    if (festiveBanner && show && festiveBanner.hidden) {
+      festiveBanner.classList.add('festive-enter');
+      setTimeout(() => festiveBanner?.classList.remove('festive-enter'), 400);
+    }
+    if (festiveBanner) festiveBanner.hidden = !show;
+    if (festiveLayer) festiveLayer.hidden = !festiveOn;
+    if (chatTitle) chatTitle.textContent = festiveOn ? '🌸 DiNhiChat 🌸' : (currentProfile?.name || 'DiNhiChat');
+    if (!festiveOn) return;
+    setFestiveText(festiveTextA, festiveOtherName());
+    setFestiveText(festiveTextB, festiveOtherName());
+    if (festiveLong) festiveLong.textContent = 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc ' + festiveOtherName() + ' luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn vì đã luôn ở đây 💐💕';
+  }
+
+  function startFestiveFall() {
+    if (!festiveLayer || festiveLayer.childElementCount || festiveReducedMotion()) return;
+    for (let i = 0; i < 14; i++) {
+      const s = document.createElement('span');
+      s.className = 'festive-petal';
+      s.textContent = FESTIVE_FLOWERS[i % FESTIVE_FLOWERS.length];
+      s.style.fontSize = (14 + Math.round(Math.random() * 12)) + 'px';
+      s.style.left = (Math.random() * 100) + '%';
+      festiveLayer.appendChild(s);
+      const dur = 8000 + Math.random() * 6000;
+      const sway = 20 + Math.random() * 30;
+      try {
+        const anim = s.animate([
+          { transform: 'translate3d(0,-60px,0) rotate(0deg)', opacity: 0 },
+          { opacity: .85, offset: .08 },
+          { transform: 'translate3d(' + sway + 'px,50vh,0) rotate(120deg)', opacity: .85, offset: .5 },
+          { transform: 'translate3d(' + (-sway) + 'px,105vh,0) rotate(240deg)', opacity: 0 }
+        ], { duration: dur, delay: -Math.random() * dur, iterations: Infinity });
+        festiveAnims.push(anim);
+      } catch {}
+    }
+  }
+
+  function stopFestiveFall() {
+    festiveAnims.forEach((a) => { try { a.cancel(); } catch {} });
+    festiveAnims = [];
+    if (festiveLayer) festiveLayer.textContent = '';
+  }
+
+  function festiveFireworks() {
+    if (!festiveLayer || festiveReducedMotion() || document.hidden) return;
+    const rect = festiveLayer.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height * 0.4;
+    const glyphs = ['🌸', '💗', '✨'];
+    for (let i = 0; i < 24; i++) {
+      const s = document.createElement('span');
+      s.className = 'festive-petal';
+      s.style.opacity = '1';
+      s.textContent = glyphs[i % glyphs.length];
+      s.style.fontSize = (12 + Math.round(Math.random() * 10)) + 'px';
+      s.style.left = cx + 'px';
+      s.style.top = cy + 'px';
+      festiveLayer.appendChild(s);
+      const ang = (i / 24) * Math.PI * 2 + Math.random() * 0.4;
+      const dist = 90 + Math.random() * 130;
+      const dx = Math.cos(ang) * dist;
+      try {
+        const anim = s.animate([
+          { transform: 'translate(-50%,-50%) scale(.6)', opacity: 1 },
+          { transform: 'translate(calc(-50% + ' + Math.round(dx) + 'px), calc(-50% - ' + Math.round(Math.abs(Math.sin(ang)) * 60 + 40) + 'px)) scale(1.1)', opacity: 1, offset: .45 },
+          { transform: 'translate(calc(-50% + ' + Math.round(dx * 1.1) + 'px), calc(-50% + 220px)) scale(.9)', opacity: 0 }
+        ], { duration: 2500, easing: 'cubic-bezier(.2,.7,.3,1)' });
+        anim.onfinish = () => s.remove();
+      } catch { s.remove(); }
+    }
+  }
+
+  function showFestiveToast(text, duration = 3000) {
+    try {
+      document.querySelector('.festive-toast')?.remove();
+      const toast = document.createElement('div');
+      toast.className = 'festive-toast';
+      toast.textContent = text;
+      (document.getElementById('app') || document.body).appendChild(toast);
+      setTimeout(() => toast.remove(), duration);
+    } catch {}
+  }
+
+  function maybeFestiveFireworks() {
+    if (!festiveOn) return;
+    try {
+      if (chatScreen && !chatScreen.classList.contains('active')) return;
+      if (localStorage.getItem(FESTIVE_SEEN_KEY) === vnDateString()) return;
+      localStorage.setItem(FESTIVE_SEEN_KEY, vnDateString());
+    } catch {}
+    festiveFireworks();
+    showFestiveToast('Chúc mừng 20/10 💐');
+  }
+
+  function checkFestive() {
+    const on = isEvent2010();
+    if (on === festiveOn) {
+      if (on) applyFestive();
+      return;
+    }
+    festiveOn = on;
+    if (on) {
+      applyFestive();
+      startFestiveFall();
+      maybeFestiveFireworks();
+    } else {
+      stopFestiveFall();
+      closeFestiveSheet();
+      applyFestive();
+    }
+  }
+
+  function openFestiveSheet() {
+    if (festiveLong) festiveLong.textContent = 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc ' + festiveOtherName() + ' luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn vì đã luôn ở đây 💐💕';
+    festiveBackdrop?.classList.add('open');
+    festiveSheet?.classList.add('open');
+  }
+
+  function closeFestiveSheet() {
+    festiveBackdrop?.classList.remove('open');
+    festiveSheet?.classList.remove('open');
+  }
+
+  festiveOpenBtn?.addEventListener('click', openFestiveSheet);
+  festiveHideBtn?.addEventListener('click', () => {
+    festiveHiddenSession = true;
+    if (festiveBanner) festiveBanner.hidden = true;
+  });
+  festiveBackdrop?.addEventListener('click', closeFestiveSheet);
+  festiveCloseBtn?.addEventListener('click', closeFestiveSheet);
+  festiveSendBtn?.addEventListener('click', () => {
+    if (messageInput) {
+      messageInput.value = FESTIVE_WISH;
+      try { resizeMessageInput(); updateSendButtonVisibility(); } catch {}
+      try { messageInput.focus({ preventScroll: true }); } catch { try { messageInput.focus(); } catch {} }
+    }
+    closeFestiveSheet();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    try { document.body.classList.toggle('festive-paused', document.hidden); } catch {}
+    if (document.hidden) festiveAnims.forEach((a) => { try { a.pause(); } catch {} });
+    else {
+      festiveAnims.forEach((a) => { try { a.play(); } catch {} });
+      checkFestive();
+    }
+  });
+  setInterval(() => { if (document.visibilityState === 'visible') checkFestive(); }, 60000);
+
   // ─── Visibility / focus sync ──────────────────────────────────────────────────
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && currentUser) {
@@ -3488,6 +3715,7 @@
       await loadProfiles();
       loadStreakCache();
       refreshStreak();
+      checkFestive();
       await loadCover();
       subscribeCoverSettings();
       await loadFromCacheThenSync();
