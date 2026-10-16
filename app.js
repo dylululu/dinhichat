@@ -3454,7 +3454,8 @@
   // ─── 20/10: banner + hoa rơi + thiệp ─────────────────────────────────────────
   const FESTIVE_SEEN_KEY = 'dnc_2010_seen';
   const FESTIVE_FLOWERS = ['🌸', '💐', '🌷', '🌹', '✨', '💗'];
-  const FESTIVE_WISH = 'Chúc mừng 20/10 nhaaa 💐🌸 Iu dấu luôn xinh đẹp, vui vẻ và hạnh phúc nhé 💕';
+  const FESTIVE_WISH = 'Chúc mừng 20/10 nhaaa Vợ iu 💐🌸 Chúc Vợ iu luôn xinh đẹp, vui vẻ và hạnh phúc nhé, yêu Vợ iu nhiều lắm 💕';
+  const FESTIVE_LONG = 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc Vợ iu luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn Vợ iu đã luôn ở đây 💐💕';
   let festiveOn = false;
   let festiveHiddenSession = false;
   let festiveAnims = [];
@@ -3490,25 +3491,14 @@
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   }
 
-  function festiveOtherName() {
-    try {
-      if (typeof streakOtherName === 'function') return streakOtherName();
-    } catch {}
-    if (!currentUser) return 'Iu dấu';
-    for (const p of profilesMap.values()) {
-      if (p.id !== currentUser.id) return p.name || 'Iu dấu';
-    }
-    return 'Iu dấu';
-  }
-
-  function setFestiveText(el, name) {
+  function setFestiveText(el) {
     if (!el) return;
     el.textContent = '';
     const parts = [
       ['ico', '🌸'], ['txt', ' Chúc mừng 20/10 '], ['ico', '🌸'],
-      ['txt', ' Chúc '], ['name', name],
+      ['txt', ' Chúc '], ['name', 'Vợ iu'],
       ['txt', ' luôn xinh đẹp, hạnh phúc và được yêu thương thật nhiều '],
-      ['ico', '💐'], ['txt', ' Yêu nhiều lắm '], ['ico', '💕']
+      ['ico', '💐'], ['txt', ' Yêu Vợ iu nhiều lắm '], ['ico', '💕']
     ];
     let icoIdx = 0;
     parts.forEach(([kind, val]) => {
@@ -3536,9 +3526,9 @@
     if (festiveLayer) festiveLayer.hidden = !festiveOn;
     if (chatTitle) chatTitle.textContent = festiveOn ? '🌸 DiNhiChat 🌸' : (currentProfile?.name || 'DiNhiChat');
     if (!festiveOn) return;
-    setFestiveText(festiveTextA, festiveOtherName());
-    setFestiveText(festiveTextB, festiveOtherName());
-    if (festiveLong) festiveLong.textContent = 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc ' + festiveOtherName() + ' luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn vì đã luôn ở đây 💐💕';
+    setFestiveText(festiveTextA);
+    setFestiveText(festiveTextB);
+    if (festiveLong) festiveLong.textContent = FESTIVE_LONG;
   }
 
   function startFestiveFall() {
@@ -3640,7 +3630,7 @@
   }
 
   function openFestiveSheet() {
-    if (festiveLong) festiveLong.textContent = 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc ' + festiveOtherName() + ' luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn vì đã luôn ở đây 💐💕';
+    if (festiveLong) festiveLong.textContent = FESTIVE_LONG;
     festiveBackdrop?.classList.add('open');
     festiveSheet?.classList.add('open');
   }
