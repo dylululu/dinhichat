@@ -11,13 +11,13 @@
 
 ## Bản đồ file
 - `index.html`: UI chat, #kb hồng, #app fixed, #list contain, viên thuốc đang nhập, thanh trả lời, nút 🤍/huy hiệu là con bong bóng (right:-6px; bottom:-10px), #rxBar + #rxBackdrop, bong bóng user-select:none.
-- `app.js`: Client logic (initChat, ensurePush, fitViewport, addMsg, reply, sticker, cache, nút 🤍 trong bong bóng mở #rxBar (click), huy hiệu chạm mở lại thanh, pickReaction, đúp chạm ❤️, streak header + sheet + rpc get_streak + cache + celebrate).
+- `app.js`: Client logic (initChat, ensurePush, fitViewport, addMsg, reply, sticker, cache, nút 🤍 trong bong bóng mở #rxBar (click), huy hiệu chạm mở lại thanh, pickReaction, đúp chạm ❤️, streak header + sheet + rpc get_streak + cache + celebrate, tìm kiếm #search-screen + rpc search_messages + nhảy tới tin).
 - `sw.js` / `config.js`: Service worker và config public Supabase.
 - `supabase/functions/`: notify (push tức thì), remind (cron nhắc chưa rep).
-- `supabase/migrations/`: 001_init -> 010_streak (hàm get_streak security definer).
+- `supabase/migrations/`: 001_init -> 012_search (unaccent + pg_trgm, f_unaccent immutable, chỉ mục GIN, rpc search_messages).
 
 ## Database
-- Bảng: `profiles`, `messages`, `stickers`, `chat_settings`, `reactions` (message_id, user_id, emoji; PK; RLS; Realtime). Hàm `get_streak()` → {current, best, today_me, today_other, last_both_date, week[7]} (ngày giờ VN, chuỗi date-row_number).
+- Bảng: `profiles`, `messages`, `stickers`, `chat_settings`, `reactions` (message_id, user_id, emoji; PK; RLS; Realtime). Hàm `get_streak()` → {current, best, today_me, today_other, last_both_date, week[7]} (ngày giờ VN, chuỗi date-row_number). Hàm `search_messages(q, lim, before)` tìm chuỗi con không dấu/hoa-thường (f_unaccent + đ→d, escape %_), GIN trgm, tối đa 50/lần; tin ảnh/sticker không chữ không vào kết quả.
 
 ## Đã xong
 - Chat realtime 2 người, chống trùng tin, Web Push PWA (iOS Safari).
@@ -28,6 +28,7 @@
 - Bảng chức năng ➕ 4 cột, bàn phím iOS mặc định + phím hồng Telex 🌐.
 - Thả cảm xúc: nút 🤍 22px là con bong bóng tin người kia (right:-6px; bottom:-10px, vùng chạm 40px), có reaction thì ẩn nút hiện huy hiệu cùng chỗ (chạm mở lại thanh); giờ margin-top 12px không bị che; #rxBar + #rxBackdrop (click), chạm đúp ❤️, optimistic + toast.
 - Chuỗi giữ lửa: viên thuốc 💗/🤍 N ngày ở header (tim đập lub-dub 1.2s/2s + vòng sáng, chờ có chấm cam, reduced-motion đứng yên); bấm mở sheet (số lớn, kỷ lục, trạng thái hôm nay, 7 chấm tim); rpc get_streak khi mở app/visible/gửi/nhận (debounce 2s) + cache; tăng streak ăn mừng tim bay + toast, mốc 7/30/100/365 riêng.
+- Tìm kiếm tin nhắn: nút 🔍 trong panel ➕ mở màn #search-screen (bàn phím iOS, ẩn #kb/panel, đóng trả trạng thái); debounce 300ms, q ≥ 2 ký tự, hủy kết quả cũ bằng requestId; kết quả avatar + tên + giờ + mark vàng (so khớp không dấu bằng textContent); cuộn vô hạn (before, 30/lần); bấm nhảy tới tin (tải 30 trước/sau nếu thiếu, nháy 1.5s); 5 từ khóa gần nhất + xóa lịch sử; tối + 320px OK.
 
 ## Đang làm / Dở dang
 - Bạn làm tay: `npx serve .` thử, tự git push, xóa icon iPhone rồi thêm lại.

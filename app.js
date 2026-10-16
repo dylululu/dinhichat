@@ -2983,6 +2983,308 @@
     fileGallery.addEventListener('change', () => handleFiles(fileGallery.files));
   }
 
+  // ─── Tìm kiếm tin nhắn ──────────────────────────────────────────────────────
+  const SEARCH_HISTORY_KEY = 'dinhichat_search_history_v1';
+  const SEARCH_PAGE = 30;
+  const searchScreen = document.getElementById('search-screen');
+  const searchInput = document.getElementById('search-input');
+  const searchBack = document.getElementById('search-back');
+  const searchClear = document.getElementById('search-clear');
+  const searchStatus = document.getElementById('search-status');
+  const searchHistoryEl = document.getElementById('search-history');
+  const searchResultsEl = document.getElementById('search-results');
+  const btnSearch = document.getElementById('btn-search');
+  let searchWasPink = false;
+  let searchDebounce = null;
+  let searchRequestId = 0;
+  let searchLoadingMore = false;
+  let searchHasMore = false;
+  let searchLastBefore = null;
+  let searchCache = new Map();
+
+  function unaccentLower(s) {
+    return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+  }
+
+  // Dựng đoạn text với <mark> cho từ khóa (so khớp không dấu), an toàn XSS.
+  function highlightSearchText(text, q) {
+    const frag = document.createDocumentFragment();
+    const nq = unaccentLower(q);
+    if (!nq || !text) { frag.textContent = text || ''; return frag; }
+    let norm = '';
+    const map = [];
+    for (let i = 0; i < text.length; i++) {
+      const u = text[i].normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+      const rep = u || text[i];
+      for (let k = 0; k < rep.length; k++) map.push(i);
+      norm += rep;
+    }
+    const ln = norm.toLowerCase();
+    let pos = 0;
+    let idx = ln.indexOf(nq);
+    while (idx !== -1) {
+      const start = map[idx];
+      const end = map[idx + nq.length - 1] + 1;
+      if (start > pos) frag.appendChild(document.createTextNode(text.slice(pos, start)));
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(start, end);
+      frag.appendChild(mark);
+      pos = end;
+      idx = ln.indexOf(nq, idx + nq.length);
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    return frag;
+  }
+
+  function fmtSearchTime(iso) {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      if (d.toDateString() === now.toDateString()) {
+        return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      }
+      return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
+    } catch { return ''; }
+  }
+
+  function getSearchHistory() {
+    try {
+      const h = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+      return Array.isArray(h) ? h.filter((x) => typeof x === 'string') : [];
+    } catch { return []; }
+  }
+
+  function saveSearchHistory(q) {
+    try {
+      const h = [q, ...getSearchHistory().filter((x) => x !== q)].slice(0, 5);
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(h));
+    } catch {}
+  }
+
+  function renderSearchHistory() {
+    if (!searchHistoryEl || !searchInput) return;
+    searchHistoryEl.textContent = '';
+    if (searchInput.value.trim()) return;
+    const h = getSearchHistory();
+    if (!h.length) return;
+    for (const q of h) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'search-chip';
+      chip.textContent = q;
+      chip.addEventListener('click', () => {
+        if (!searchInput) return;
+        searchInput.value = q;
+        runSearch(q);
+      });
+      searchHistoryEl.appendChild(chip);
+    }
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'search-history-clear';
+    clear.textContent = 'Xóa lịch sử';
+    clear.addEventListener('click', () => {
+      try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch {}
+      renderSearchHistory();
+    });
+    searchHistoryEl.appendChild(clear);
+  }
+
+  function setSearchStatus(text) {
+    if (searchStatus) searchStatus.textContent = text;
+  }
+
+  function appendSearchResults(rows, q) {
+    if (!searchResultsEl) return;
+    for (const m of rows) {
+      searchCache.set(m.id, m);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'search-row';
+      const av = document.createElement('span');
+      av.className = 'search-avatar';
+      av.setAttribute('aria-hidden', 'true');
+      const nm = senderName(m);
+      av.textContent = nm.substring(0, 2).toUpperCase();
+      const body = document.createElement('span');
+      body.className = 'search-row-body';
+      const head = document.createElement('span');
+      head.className = 'search-row-head';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'search-row-name';
+      nameEl.textContent = nm;
+      const timeEl = document.createElement('span');
+      timeEl.className = 'search-row-time';
+      timeEl.textContent = fmtSearchTime(m.created_at);
+      head.appendChild(nameEl);
+      head.appendChild(timeEl);
+      const textEl = document.createElement('span');
+      textEl.className = 'search-row-text';
+      textEl.appendChild(highlightSearchText(m.content || '', q));
+      body.appendChild(head);
+      body.appendChild(textEl);
+      btn.appendChild(av);
+      btn.appendChild(body);
+      btn.addEventListener('click', () => jumpToMessage(m.id, m.created_at));
+      searchResultsEl.appendChild(btn);
+    }
+    const count = searchResultsEl.childElementCount;
+    setSearchStatus(count ? (count + (searchHasMore ? '+ kết quả' : ' kết quả')) : 'Không thấy kết quả');
+  }
+
+  async function runSearch(q, before = null) {
+    if (!searchResultsEl || !currentUser) return;
+    const query = (q || '').trim();
+    if (query.length < 2) {
+      if (!before) {
+        searchResultsEl.textContent = '';
+        setSearchStatus('');
+        renderSearchHistory();
+      }
+      return;
+    }
+    const myId = ++searchRequestId;
+    if (!before) {
+      searchLoadingMore = false;
+      searchHasMore = false;
+      searchLastBefore = null;
+      searchResultsEl.textContent = '';
+      setSearchStatus('Đang tìm…');
+      saveSearchHistory(query);
+      renderSearchHistory();
+    } else {
+      if (searchLoadingMore) return;
+      searchLoadingMore = true;
+    }
+    try {
+      const { data, error } = await supabase.rpc('search_messages', {
+        q: query,
+        lim: SEARCH_PAGE,
+        before: before
+      });
+      if (myId !== searchRequestId) return;
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
+      searchHasMore = rows.length >= SEARCH_PAGE;
+      if (rows.length) searchLastBefore = rows[rows.length - 1].created_at;
+      appendSearchResults(rows, query);
+    } catch (err) {
+      if (myId !== searchRequestId) return;
+      console.error('runSearch error:', err);
+      setSearchStatus('Tìm thất bại');
+    } finally {
+      if (myId === searchRequestId) searchLoadingMore = false;
+    }
+  }
+
+  function insertRowChronological(row, createdAt) {
+    const rows = messagesContainer.querySelectorAll('.message-row[data-id]');
+    for (const r of rows) {
+      if (String(r.dataset.id).startsWith('tmp-')) continue;
+      let t = null;
+      try { t = JSON.parse(r.dataset.msg || '{}').created_at; } catch {}
+      if (t && t > createdAt) { messagesContainer.insertBefore(row, r); return; }
+    }
+    messagesContainer.appendChild(row);
+  }
+
+  async function jumpToMessage(id, createdAt) {
+    closeSearch();
+    let row = document.getElementById('msg-' + id);
+    if (!row && createdAt) {
+      try {
+        const target = searchCache.get(id) || await getMessageById(id);
+        const [olderRes, newerRes] = await Promise.all([
+          supabase.from('messages').select('*').lt('created_at', createdAt).order('created_at', { ascending: false }).limit(SEARCH_PAGE),
+          supabase.from('messages').select('*').gt('created_at', createdAt).order('created_at', { ascending: true }).limit(SEARCH_PAGE)
+        ]);
+        const older = [...(olderRes.data || [])].reverse();
+        const newer = newerRes.data || [];
+        const all = [...older];
+        if (target && !older.some((m) => m.id === target.id) && !newer.some((m) => m.id === target.id)) all.push(target);
+        const merged = [...all, ...newer].sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+        for (const m of merged) {
+          if (!messageIds.has(m.id)) {
+            const r = await addMsg(m, false);
+            if (r) insertRowChronological(r, m.created_at);
+          }
+        }
+        saveMsgsToCache();
+        row = document.getElementById('msg-' + id);
+      } catch (err) {
+        console.error('jumpToMessage error:', err);
+      }
+    }
+    if (!row) { showAppToast('Không tìm thấy tin nhắn'); return; }
+    const listRect = messagesContainer.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const targetTop = messagesContainer.scrollTop + rowRect.top - listRect.top -
+      (messagesContainer.clientHeight - rowRect.height) / 2;
+    messagesContainer.scrollTo({ top: targetTop, behavior: 'smooth' });
+    row.classList.add('reply-flash');
+    setTimeout(() => row.classList.remove('reply-flash'), 1500);
+  }
+
+  function openSearch() {
+    if (!searchScreen) return;
+    closeFuncPanel();
+    closeStickerPanel();
+    searchWasPink = pinkKeyboardOpen;
+    if (searchWasPink) closePinkKeyboard();
+    if (messageInput) messageInput.blur();
+    searchScreen.classList.add('open');
+    if (searchInput) {
+      searchInput.value = '';
+      if (searchResultsEl) searchResultsEl.textContent = '';
+      setSearchStatus('');
+      renderSearchHistory();
+      try { searchInput.focus({ preventScroll: true }); } catch { searchInput.focus(); }
+    }
+  }
+
+  function closeSearch() {
+    if (!searchScreen || !searchScreen.classList.contains('open')) return;
+    searchScreen.classList.remove('open');
+    clearTimeout(searchDebounce);
+    searchRequestId++;
+    if (searchInput) searchInput.blur();
+    if (searchWasPink) {
+      searchWasPink = false;
+      try { usePinkKeyboard(); } catch {}
+    }
+  }
+
+  btnSearch?.addEventListener('click', () => { closeFuncPanel(); openSearch(); });
+  searchBack?.addEventListener('click', closeSearch);
+  searchClear?.addEventListener('click', () => {
+    if (!searchInput) return;
+    searchInput.value = '';
+    searchRequestId++;
+    if (searchResultsEl) searchResultsEl.textContent = '';
+    setSearchStatus('');
+    renderSearchHistory();
+    try { searchInput.focus({ preventScroll: true }); } catch { searchInput.focus(); }
+  });
+  searchInput?.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    const q = searchInput.value;
+    searchDebounce = setTimeout(() => runSearch(q), 300);
+  });
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(searchDebounce);
+      runSearch(searchInput.value);
+    }
+  });
+  searchResultsEl?.addEventListener('scroll', () => {
+    if (!searchHasMore || searchLoadingMore || !searchLastBefore || !searchInput) return;
+    const el = searchResultsEl;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+      runSearch(searchInput.value, searchLastBefore);
+    }
+  }, { passive: true });
+
   // ─── Image overlay ────────────────────────────────────────────────────────────
   if (imgOverlay && imgOverlayImg) {
     imgOverlay.addEventListener('click', () => { imgOverlay.classList.remove('open'); imgOverlayImg.src = ''; });

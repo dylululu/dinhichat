@@ -1558,6 +1558,151 @@
       border-radius: 12px;
     }
 
+    /* Màn tìm kiếm tin nhắn */
+    .search-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 600;
+      display: none;
+      flex-direction: column;
+      background: #fff;
+      contain: layout paint;
+    }
+    .search-screen.open { display: flex; }
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top) + 8px) 10px 8px;
+      border-bottom: 1px solid #f4c3d5;
+      background: #ffe7f0;
+    }
+    .search-back, .search-clear {
+      min-width: 44px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .search-back:active, .search-clear:active { background: #f8bbd0; }
+    .search-input {
+      flex: 1;
+      min-width: 0;
+      min-height: 44px;
+      padding: 8px 12px;
+      box-sizing: border-box;
+      border: 1px solid #edb7cb;
+      border-radius: 18px;
+      font-size: 16px !important;
+      font-family: inherit;
+      outline: none;
+      background: #fff7fa;
+      color: var(--text-main);
+    }
+    .search-status {
+      flex-shrink: 0;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #888;
+    }
+    .search-history {
+      flex-shrink: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 0 14px 8px;
+    }
+    .search-history:empty { display: none; }
+    .search-chip {
+      min-height: 44px;
+      padding: 8px 14px;
+      border: 1px solid #edb7cb;
+      border-radius: 16px;
+      background: #fff7fa;
+      font-size: 13px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .search-history-clear {
+      min-height: 44px;
+      padding: 8px 14px;
+      border: 0;
+      background: transparent;
+      color: #e91e63;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .search-results {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      min-height: 56px;
+      padding: 8px 14px;
+      box-sizing: border-box;
+      border: 0;
+      border-bottom: 1px solid #f6e3ec;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      font-family: inherit;
+    }
+    .search-row:active { background: #fff0f6; }
+    .search-avatar {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .search-row-body { flex: 1; min-width: 0; }
+    .search-row-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: #888; }
+    .search-row-name { font-weight: 700; color: var(--text-main); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .search-row-time { flex-shrink: 0; }
+    .search-row-text {
+      font-size: 14px;
+      color: var(--text-main);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      overflow-wrap: anywhere;
+    }
+    .search-row-text mark { background: #fff3b0; border-radius: 3px; padding: 0 1px; }
+    @media (prefers-color-scheme: dark) {
+      .search-screen { background: #1e1118; }
+      .search-bar { background: #2c1620; border-bottom-color: #5a2d40; }
+      .search-back:active, .search-clear:active { background: #5a2d40; }
+      .search-input { background: #3a1d2a; border-color: #5a2d40; color: #fff; }
+      .search-chip { background: #3a1d2a; border-color: #5a2d40; color: #fff; }
+      .search-row { border-bottom-color: #3a2a32; }
+      .search-row:active { background: #2c1620; }
+      .search-row-name, .search-row-text { color: #fff; }
+      .search-row-text mark { background: #8a6d1f; color: #fff; }
+    }
+
     .reaction-badge {
       position: absolute;
       right: -6px;
@@ -1802,6 +1947,9 @@
         <button class="func-item" id="kb-toggle" type="button" role="menuitem" aria-label="Đổi bàn phím">
           <span class="func-icon" aria-hidden="true">⌨️</span><span class="func-label">Bàn phím</span>
         </button>
+        <button class="func-item" id="btn-search" type="button" role="menuitem" aria-label="Tìm kiếm tin nhắn">
+          <span class="func-icon" aria-hidden="true">🔍</span><span class="func-label">Tìm kiếm</span>
+        </button>
       </div>
       <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
         <div id="sticker-grid" class="sticker-grid"></div>
@@ -1813,6 +1961,16 @@
       <div id="peer-push-notice" class="push-note">Iu dấu chưa bật thông báo, có thể chưa thấy tin ngay</div>
       <div id="notification-help" class="push-note"></div>
     </footer>
+    <section id="search-screen" class="search-screen" aria-label="Tìm kiếm tin nhắn">
+      <div class="search-bar">
+        <button id="search-back" class="search-back" type="button" aria-label="Quay lại">←</button>
+        <input id="search-input" class="search-input" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" placeholder="Tìm tin nhắn..." aria-label="Từ khóa tìm kiếm">
+        <button id="search-clear" class="search-clear" type="button" aria-label="Xóa từ khóa">✕</button>
+      </div>
+      <div id="search-status" class="search-status" role="status" aria-live="polite"></div>
+      <div id="search-history" class="search-history"></div>
+      <div id="search-results" class="search-results"></div>
+    </section>
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
       <div id="kb-popover" class="kb-popover" aria-hidden="true"></div>
       <div id="kb-lang-toast" class="kb-lang-toast" role="status" aria-live="polite"></div>
