@@ -1169,7 +1169,8 @@
     if (cached && Array.isArray(cached)) {
       cached.forEach((p) => profilesMap.set(p.id, p));
     }
-    const { data, error } = await supabase.from('profiles').select('id, name, push_subscription');
+    const { data, error } = await supabase.from('profiles')
+      .select('id, name, push_subscription, last_push_status, last_push_at');
     if (!error && data) {
       data.forEach((p) => profilesMap.set(p.id, p));
       lsSet(CACHE_PROFILES_KEY, data);
@@ -1177,10 +1178,32 @@
     }
   }
 
+  // Cảnh báo người gửi: người kia không có subscription HOẶC lần push gần nhất không 'ok'.
   function updatePeerPushNotice(profiles) {
     if (!peerPushNotice || !currentUser) return;
-    const peer = profiles.find((profile) => profile.id !== currentUser.id);
-    peerPushNotice.style.display = peer && peer.push_subscription === null ? 'block' : 'none';
+    const list = Array.isArray(profiles) && profiles.length ? profiles : [...profilesMap.values()];
+    const peer = list.find((profile) => profile.id && profile.id !== currentUser.id);
+    if (!peer) { peerPushNotice.style.display = 'none'; return; }
+    const noSubscription = peer.push_subscription === null || peer.push_subscription === undefined;
+    const lastPushNotOk = peer.last_push_status !== 'ok';
+    peerPushNotice.style.display = (noSubscription || lastPushNotOk) ? 'block' : 'none';
+  }
+
+  let peerStatusTimer = null;
+  async function refreshPeerPushStatus() {
+    if (!currentUser) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, push_subscription, last_push_status, last_push_at')
+        .neq('id', currentUser.id)
+        .limit(1);
+      if (error || !data || !data.length) return;
+      profilesMap.set(data[0].id, { ...(profilesMap.get(data[0].id) || {}), ...data[0] });
+      updatePeerPushNotice([...profilesMap.values()]);
+    } catch (err) {
+      console.error('refreshPeerPushStatus error:', err);
+    }
   }
 
   const remindSelect = document.getElementById('remind-select');
@@ -1480,8 +1503,24 @@
   }
 
   // ─── Push subscription ───────────────────────────────────────────────────────
+  function showNotifyButton() {
+    if (!btnNotify) return;
+    btnNotify.style.display = 'inline-flex';
+    if (Notification.permission === 'granted') {
+      btnNotify.onclick = () => checkNotificationStatus();
+    } else {
+      checkNotificationStatus(); // để hàm tự gắn handler đúng (xin quyền / hướng dẫn cài đặt)
+    }
+  }
+
+  // Ghi đè subscription của chính mình: gọi khi mở app / visible / pageshow / 30 phút.
   async function ensurePush() {
-    if (navigator.standalone !== true || Notification.permission !== 'granted' || !currentUser) return false;
+    if (!currentUser) return false;
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      showNotifyButton(); // quyền chưa granted → hiện lại nút 🔔
+      return false;
+    }
+    if (navigator.standalone !== true) return false;
     if (ensurePushPromise) return ensurePushPromise;
     ensurePushPromise = (async () => {
       try {
@@ -1491,24 +1530,21 @@
           applicationServerKey: urlB64ToUint8Array(window.CONFIG.VAPID_PUBLIC_KEY)
         });
         if (!sub) {
-          btnNotify.style.display = 'inline-flex';
-          btnNotify.onclick = () => checkNotificationStatus();
+          showNotifyButton();
           return false;
         }
         const { error } = await supabase.from('profiles')
           .update({ push_subscription: sub.toJSON() }).eq('id', currentUser.id);
         if (error) {
           console.error('Lỗi lưu subscription:', error);
-          btnNotify.style.display = 'inline-flex';
-          btnNotify.onclick = () => checkNotificationStatus();
+          showNotifyButton();
           return false;
         }
         btnNotify.style.display = 'none';
         return true;
       } catch (err) {
         console.error('Lỗi đăng ký push:', err);
-        btnNotify.style.display = 'inline-flex';
-        btnNotify.onclick = () => checkNotificationStatus();
+        showNotifyButton(); // subscribe lỗi → hiện lại nút 🔔
         return false;
       } finally {
         ensurePushPromise = null;
@@ -3505,6 +3541,9 @@
     clearReply();
     keepMessageInputFocused();
     scrollToBottom('mySend');
+    // Sau ~6s notify đã ghi last_push_status → cập nhật dòng cảnh báo người gửi.
+    clearTimeout(peerStatusTimer);
+    peerStatusTimer = setTimeout(refreshPeerPushStatus, 6000);
   }
 
   // ─── Chuỗi giữ lửa (streak) ────────────────────────────────────────────────
@@ -3852,13 +3891,14 @@
       markRead();
       checkNotificationStatus();
       ensurePush();
+      refreshPeerPushStatus();
       refreshCoverFromServer();
       scheduleStreakRefresh();
     } else if (document.visibilityState === 'hidden') {
       sendStopTyping();
     }
   });
-  window.addEventListener('pageshow', () => { resetToNativeKeyboard(); if (currentUser) { syncMessages(); markRead(); checkNotificationStatus(); ensurePush(); refreshCoverFromServer(); } });
+  window.addEventListener('pageshow', () => { resetToNativeKeyboard(); if (currentUser) { syncMessages(); markRead(); checkNotificationStatus(); ensurePush(); refreshPeerPushStatus(); refreshCoverFromServer(); } });
   window.addEventListener('focus', () => { if (currentUser) { syncMessages(); markRead(); } });
   setInterval(() => {
     if (document.visibilityState === 'visible') ensurePush();

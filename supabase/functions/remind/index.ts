@@ -1,15 +1,69 @@
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-async function sendPush(profile: { id: string; push_subscription: any }, payload: string, supabase: any) {
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Ghi trạng thái push lần gần nhất cho người nhận (profiles.last_push_status / last_push_at).
+async function recordPushStatus(supabase: any, profileId: string, status: string) {
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ last_push_status: status, last_push_at: new Date().toISOString() })
+      .eq("id", profileId);
+    if (error) console.error("recordPushStatus error", { profileId, status, error });
+  } catch (err: any) {
+    console.error("recordPushStatus throw", { profileId, status, message: err?.message });
+  }
+}
+
+// statusCode = 0 → lỗi mạng/timeout (vẫn thử lại).
+function isRetryable(statusCode: number): boolean {
+  if (statusCode === 0) return true;             // timeout / network
+  if (statusCode === 429) return true;           // rate limit
+  return statusCode >= 500 && statusCode <= 599; // lỗi phía server
+}
+
+async function sendPush(
+  profile: { id: string; push_subscription: any },
+  payload: string,
+  supabase: any,
+  context: string,
+  messageId?: string
+) {
   const sub = profile.push_subscription;
   if (!sub) return;
-  try {
-    await webpush.sendNotification(sub, payload, { urgency: "high", TTL: 3600 });
-  } catch (err: any) {
-    console.error("Push error for profile", profile.id, err);
-    if (err.statusCode === 404 || err.statusCode === 410) {
-      await supabase.from("profiles").update({ push_subscription: null }).eq("id", profile.id);
+  const MAX_ATTEMPTS = 3; // 1 lần gửi + tối đa 2 lần thử lại (cách 2s)
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await webpush.sendNotification(sub, payload, { urgency: "high", TTL: 86400 });
+      if (attempt > 1) console.log("Push retry ok", { context, messageId, profileId: profile.id, attempt });
+      await recordPushStatus(supabase, profile.id, "ok");
+      return;
+    } catch (err: any) {
+      const statusCode = typeof err?.statusCode === "number" ? err.statusCode : 0;
+      console.error("Push error", {
+        context,
+        messageId: messageId || null,
+        profileId: profile.id,
+        statusCode: statusCode || null,
+        name: err?.name || null,
+        message: err?.message || String(err),
+        attempt
+      });
+      // Chỉ 404/410 mới coi là subscription đã chết → xoá.
+      if (statusCode === 404 || statusCode === 410) {
+        await supabase
+          .from("profiles")
+          .update({ push_subscription: null, last_push_status: String(statusCode), last_push_at: new Date().toISOString() })
+          .eq("id", profile.id);
+        return;
+      }
+      if (isRetryable(statusCode) && attempt < MAX_ATTEMPTS) {
+        await delay(2000);
+        continue;
+      }
+      await recordPushStatus(supabase, profile.id, String(statusCode || "timeout"));
+      return;
     }
   }
 }
@@ -103,7 +157,7 @@ Deno.serve(async (req: Request) => {
           });
           
           for (const target of targetProfiles) {
-            await sendPush(target, reminderPayload, supabase);
+            await sendPush(target, reminderPayload, supabase, "remind", m.id);
           }
         }
 
