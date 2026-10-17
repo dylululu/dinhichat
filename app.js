@@ -77,6 +77,8 @@
   let lastViewportHeight = null;
   let lastViewportTop = null;
   let messagesNearBottom = true;
+  let jumpLockUntil = 0;          // chặn auto-scroll 800ms sau khi nhảy tới tin cũ
+  let viewingOldMessages = false; // đang xem tin cũ (có khoảng hở): không tự cuộn đáy
   let inputFocusPending = false;
   let keyboardBottomTimer = null;
   let pinkKeyboardOpen = false;
@@ -1575,6 +1577,8 @@
 
   function followMessagesAfterResize(shouldFollow = messagesNearBottom) {
     if (!shouldFollow) return;
+    if (Date.now() < jumpLockUntil) return;
+    if (viewingOldMessages) return;
     requestAnimationFrame(() => {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     });
@@ -1582,6 +1586,7 @@
 
   messagesContainer.addEventListener('scroll', () => {
     messagesNearBottom = nearMessagesBottom();
+    if (viewingOldMessages && messagesNearBottom && Date.now() >= jumpLockUntil) exitOldView();
   }, { passive: true });
   let lastMessagesHeightObserved = Math.round(messagesContainer.getBoundingClientRect().height);
   if ('ResizeObserver' in window) {
@@ -1595,8 +1600,19 @@
   }
 
   function scrollMessagesToBottom() {
+    if (viewingOldMessages || Date.now() < jumpLockUntil) return;
     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
     if (newMessagesButton) newMessagesButton.classList.remove('visible');
+  }
+
+  // Thoát chế độ "đang xem tin cũ": tải 100 tin gần nhất + cuộn xuống đáy.
+  function exitOldView() {
+    if (!viewingOldMessages) return;
+    viewingOldMessages = false;
+    if (newMessagesButton) newMessagesButton.classList.remove('visible');
+    Promise.resolve(syncMessages())
+      .then(() => { try { messagesContainer.scrollTop = messagesContainer.scrollHeight; } catch {} })
+      .catch(() => {});
   }
 
   function animateMessage(row, isSelf) {
@@ -2428,7 +2444,8 @@
     time.textContent = formatTime(message.created_at) + remindIcon;
     row.appendChild(time);
 
-    messagesContainer.appendChild(row);
+    if (options.sorted && message.created_at) insertMsgSorted(row, message.created_at);
+    else messagesContainer.appendChild(row);
     enableSwipeReply(row, message);
     setupRowGesture(row, message);
     if (canReact) renderReactionBadges(row);
@@ -2786,12 +2803,21 @@
       .from('messages')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(100);
     if (error) { console.error('syncMessages error:', error); return; }
     if (data && data.length > 0) {
       const sorted = data.reverse();
-      for (const msg of sorted) await addMsg(msg, false);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      let addedNew = false;
+      for (const msg of sorted) {
+        if (!messageIds.has(msg.id) && !document.getElementById('msg-' + msg.id)) addedNew = true;
+        await addMsg(msg, false, { sorted: true });
+      }
+      // Đang xem tin cũ: không kéo người dùng về đáy, chỉ hiện nút "↓ Tin mới".
+      if (viewingOldMessages) {
+        if (addedNew && newMessagesButton) newMessagesButton.classList.add('visible');
+      } else {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
       saveMsgsToCache();
       renderSeen();
       await markRead();
@@ -2812,8 +2838,11 @@
           if (payload.new) {
             const alreadyRendered = messageIds.has(payload.new.id);
             const wasNearBottom = nearMessagesBottom();
-            await addMsg(payload.new, false, { animate: !alreadyRendered });
-            if (currentUser && payload.new.sender_id !== currentUser.id) {
+            await addMsg(payload.new, false, { animate: !alreadyRendered, sorted: true });
+            if (viewingOldMessages) {
+              // Không kéo khỏi tin đang xem; tin mới vẫn lưu + hiện nút "↓ Tin mới".
+              if (newMessagesButton) newMessagesButton.classList.add('visible');
+            } else if (currentUser && payload.new.sender_id !== currentUser.id) {
               if (wasNearBottom) scrollMessagesToBottom();
               else if (newMessagesButton) newMessagesButton.classList.add('visible');
             } else if (!alreadyRendered) {
@@ -3179,52 +3208,137 @@
     }
   }
 
-  function insertRowChronological(row, createdAt) {
-    const rows = messagesContainer.querySelectorAll('.message-row[data-id]');
-    for (const r of rows) {
-      if (String(r.dataset.id).startsWith('tmp-')) continue;
+  // Chèn bong bóng vào đúng thứ tự thời gian; nếu chèn phía trên khung nhìn
+  // đang thấy thì bù scrollTop để giữ nguyên vị trí cuộn.
+  function insertMsgSorted(row, createdAt) {
+    const list = messagesContainer;
+    const prevH = list.scrollHeight;
+    const prevTop = list.scrollTop;
+    let before = null;
+    for (const r of list.querySelectorAll('.message-row[data-id]')) {
+      if (r === row) continue;
+      if (String(r.dataset.id || '').startsWith('tmp-')) continue;
       let t = null;
       try { t = JSON.parse(r.dataset.msg || '{}').created_at; } catch {}
-      if (t && t > createdAt) { messagesContainer.insertBefore(row, r); return; }
+      if (t && t > createdAt) { before = r; break; }
     }
-    messagesContainer.appendChild(row);
+    if (before) list.insertBefore(row, before);
+    else list.appendChild(row);
+    if (before && before.offsetTop <= prevTop) {
+      list.scrollTop = prevTop + (list.scrollHeight - prevH);
+    }
+    return before;
+  }
+
+  function findMsgRow(id) {
+    const key = String(id);
+    for (const r of messagesContainer.querySelectorAll('.message-row[data-id]')) {
+      if (r.dataset.id === key) return r;
+    }
+    return null;
+  }
+
+  function chronoBounds() {
+    let first = null;
+    let last = null;
+    for (const r of messagesContainer.querySelectorAll('.message-row[data-id]')) {
+      if (String(r.dataset.id || '').startsWith('tmp-')) continue;
+      let t = null;
+      try { t = JSON.parse(r.dataset.msg || '{}').created_at; } catch {}
+      if (!t) continue;
+      if (!first || t < first) first = t;
+      if (!last || t > last) last = t;
+    }
+    return { first, last };
+  }
+
+  function failJump(key, detail) {
+    try { console.error('jumpToMessage: không mở được tin này', { id: key, detail }); } catch {}
+    showAppToast('Không mở được tin này');
   }
 
   async function jumpToMessage(id, createdAt) {
+    const key = String(id);
     closeSearch();
-    let row = document.getElementById('msg-' + id);
-    if (!row && createdAt) {
+    // Chờ màn tìm kiếm đóng hẳn (display:none) trước khi đo/cuộn; tab ẩn rAF không chạy nên có timeout.
+    try {
+      await new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        try { requestAnimationFrame(() => requestAnimationFrame(finish)); } catch { finish(); }
+        setTimeout(finish, 400);
+      });
+    } catch {}
+
+    let row = findMsgRow(key);
+    if (!row) {
+      let mark = createdAt || null;
+      if (!mark) {
+        try {
+          const t = searchCache.get(id) || await getMessageById(key);
+          mark = t && t.created_at;
+        } catch (err) { failJump(key, { stage: 'get-target', err }); return; }
+      }
+      if (!mark) { failJump(key, { stage: 'no-created-at' }); return; }
       try {
-        const target = searchCache.get(id) || await getMessageById(id);
+        const before = chronoBounds();
         const [olderRes, newerRes] = await Promise.all([
-          supabase.from('messages').select('*').lt('created_at', createdAt).order('created_at', { ascending: false }).limit(SEARCH_PAGE),
-          supabase.from('messages').select('*').gt('created_at', createdAt).order('created_at', { ascending: true }).limit(SEARCH_PAGE)
+          supabase.from('messages').select('*').lte('created_at', mark).order('created_at', { ascending: false }).limit(SEARCH_PAGE),
+          supabase.from('messages').select('*').gt('created_at', mark).order('created_at', { ascending: true }).limit(SEARCH_PAGE)
         ]);
+        if (olderRes.error) throw { query: 'older', error: olderRes.error };
+        if (newerRes.error) throw { query: 'newer', error: newerRes.error };
         const older = [...(olderRes.data || [])].reverse();
-        const newer = newerRes.data || [];
-        const all = [...older];
-        if (target && !older.some((m) => m.id === target.id) && !newer.some((m) => m.id === target.id)) all.push(target);
-        const merged = [...all, ...newer].sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
-        for (const m of merged) {
-          if (!messageIds.has(m.id)) {
-            const r = await addMsg(m, false);
-            if (r) insertRowChronological(r, m.created_at);
+        const newer = [...(newerRes.data || [])];
+        const target = searchCache.get(id) || messageCache.get(id) || null;
+        const all = [...older, ...newer];
+        if (target && !all.some((m) => String(m.id) === key)) all.push(target);
+        all.sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+        // Khoảng trống: đoạn tải không nối liền tin đang hiện → cờ "đang xem tin cũ".
+        const oldest = all.length ? all[0].created_at : null;
+        const newest = all.length ? all[all.length - 1].created_at : null;
+        let gap = false;
+        if (!before.first || !before.last) gap = true;
+        else if (newest && newest < before.first) gap = true;
+        else if (oldest && oldest > before.last) gap = true;
+        for (const m of all) {
+          if (String(m.id).startsWith('tmp-')) continue;
+          if (findMsgRow(m.id)) continue;
+          if (messageIds.has(m.id)) messageIds.delete(m.id);
+          try {
+            await addMsg(m, false, { sorted: true });
+          } catch (err) {
+            messageIds.delete(m.id);
+            console.error('jumpToMessage: lỗi vẽ tin', m.id, err);
           }
         }
         saveMsgsToCache();
-        row = document.getElementById('msg-' + id);
+        if (gap) viewingOldMessages = true;
       } catch (err) {
-        console.error('jumpToMessage error:', err);
+        failJump(key, { stage: 'fetch-segment', mark, error: err });
+        return;
       }
+      row = findMsgRow(key);
     }
-    if (!row) { showAppToast('Không tìm thấy tin nhắn'); return; }
-    const listRect = messagesContainer.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    const targetTop = messagesContainer.scrollTop + rowRect.top - listRect.top -
-      (messagesContainer.clientHeight - rowRect.height) / 2;
-    messagesContainer.scrollTo({ top: targetTop, behavior: 'smooth' });
-    row.classList.add('reply-flash');
-    setTimeout(() => row.classList.remove('reply-flash'), 1500);
+    if (!row) { failJump(key, { stage: 'row-missing' }); return; }
+
+    jumpLockUntil = Date.now() + 800;
+    const centerRow = () => {
+      if (!row || !row.isConnected) return;
+      try {
+        const listRect = messagesContainer.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        const targetTop = messagesContainer.scrollTop + (rowRect.top - listRect.top) -
+          (messagesContainer.clientHeight - rowRect.height) / 2;
+        messagesContainer.scrollTop = Math.max(0, targetTop);
+      } catch {}
+    };
+    centerRow();
+    setTimeout(centerRow, 300); // ảnh tải xong làm lệch thì cuộn lại 1 lần
+    row.classList.add('msg-highlight');
+    setTimeout(() => row.classList.remove('msg-highlight'), 1500);
+    // Nếu không có khoảng hở / nội dung vừa khít màn hình thì về lại bình thường.
+    setTimeout(() => { if (viewingOldMessages && nearMessagesBottom()) exitOldView(); }, 900);
   }
 
   function openSearch() {
@@ -3839,7 +3953,10 @@
     if (ignoreSendClick) { event.preventDefault(); return; }
     sendMessage();
   });
-  if (newMessagesButton) newMessagesButton.addEventListener('click', scrollMessagesToBottom);
+  if (newMessagesButton) newMessagesButton.addEventListener('click', () => {
+    if (viewingOldMessages) { exitOldView(); return; }
+    scrollMessagesToBottom();
+  });
   replyCancel.addEventListener('click', clearReply);
   messageInput.addEventListener('input', () => {
     if (composerInputFramePending) return;

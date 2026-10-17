@@ -742,6 +742,18 @@
       box-shadow: 0 0 0 3px rgba(233, 30, 99, 0.4);
     }
 
+    /* Nháy sáng tin nhảy tới từ tìm kiếm (1.5s, chỉ opacity + nền) */
+    .message-row.msg-highlight {
+      animation: msg-highlight-fade 1.5s ease;
+    }
+    @keyframes msg-highlight-fade {
+      0% { opacity: 1; background-color: transparent; }
+      15% { opacity: .45; background-color: rgba(233, 30, 99, .16); }
+      35% { opacity: 1; background-color: rgba(233, 30, 99, .3); }
+      60% { background-color: rgba(233, 30, 99, .12); }
+      100% { opacity: 1; background-color: transparent; }
+    }
+
     .message-row.self {
       align-self: flex-end;
       align-items: flex-end;
