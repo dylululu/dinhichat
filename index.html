@@ -1715,6 +1715,230 @@
       .search-row-text mark { background: #8a6d1f; color: #fff; }
     }
 
+    /* ── Màn hồ sơ ─────────────────────────────────────────── */
+    .profile-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 700;
+      display: none;
+      flex-direction: column;
+      background: #fff;
+      color: var(--text-main);
+      contain: layout paint;
+      overscroll-behavior: contain;
+    }
+    .profile-screen.open { display: flex; }
+    .profile-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top) + 8px) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+      background: #ffe7f0;
+      border-bottom: 1px solid #f4c3d5;
+    }
+    .profile-bar-title {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: #b0526f;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .profile-bar-btn {
+      min-width: 56px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      color: #b0526f;
+      font-size: 16px;
+      font-family: inherit;
+      cursor: pointer;
+      flex-shrink: 0;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .profile-bar-btn:active { background: #f8bbd0; }
+    .profile-save { background: #ff8fb3; color: #fff; font-weight: 700; }
+    .profile-save:disabled { opacity: .6; cursor: default; }
+    .profile-tabs {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      padding: 8px max(12px, env(safe-area-inset-right)) 4px max(12px, env(safe-area-inset-left));
+    }
+    .profile-tab {
+      flex: 1;
+      min-width: 0;
+      min-height: 44px;
+      padding: 8px 10px;
+      border: 1px solid #edb7cb;
+      border-radius: 22px;
+      background: #fff7fa;
+      color: #b0526f;
+      font-size: 14px;
+      font-family: inherit;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .profile-tab.active { background: #ff8fb3; border-color: #ff8fb3; color: #fff; }
+    .profile-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 12px max(12px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 24px) max(12px, env(safe-area-inset-left));
+      box-sizing: border-box;
+    }
+    .profile-hero {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 0 14px;
+    }
+    .profile-avatar-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 6px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .profile-avatar {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #ffd6e5;
+      color: #b0526f;
+      font-size: 30px;
+      font-weight: 700;
+      border: 3px solid #ffd6e5;
+    }
+    .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .profile-avatar-hint { font-size: 12px; color: #a08a94; }
+    .profile-name { font-size: 18px; font-weight: 700; color: var(--text-main); text-align: center; overflow-wrap: anywhere; }
+    .profile-birthday { font-size: 13px; color: #888; text-align: center; overflow-wrap: anywhere; }
+    .profile-group {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid #f4d5e2;
+      border-radius: 16px;
+      background: #fffafd;
+    }
+    .profile-group-title { font-size: 13px; font-weight: 700; color: #b0526f; margin-bottom: 8px; }
+    .pf { margin-bottom: 10px; }
+    .pf:last-child { margin-bottom: 0; }
+    .pf-label { display: block; font-size: 13px; color: #7a6b71; margin-bottom: 4px; }
+    .pf-control { display: flex; gap: 6px; align-items: stretch; }
+    .pf-input, .pf-select, .pf-textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 44px;
+      padding: 10px 12px;
+      box-sizing: border-box;
+      border: 1px solid #edb7cb;
+      border-radius: 12px;
+      background: #fff;
+      color: var(--text-main);
+      font-size: 16px !important;
+      font-family: inherit;
+      line-height: 1.4;
+      outline: none;
+    }
+    .pf-textarea { min-height: 84px; resize: vertical; white-space: pre-wrap; }
+    .pf-input:focus, .pf-select:focus, .pf-textarea:focus { border-color: #ff8fb3; }
+    .pf-count { font-size: 11px; color: #a08a94; text-align: right; margin-top: 2px; }
+    .pf-error { font-size: 12px; color: #e0356d; margin-top: 3px; }
+    .pf-error:empty { display: none; }
+    .pf-row { display: flex; gap: 8px; }
+    .pf-row > .pf { flex: 1; min-width: 0; }
+    .profile-copy {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid #edb7cb;
+      border-radius: 12px;
+      background: #fff7fa;
+      color: #b0526f;
+      font-size: 13px;
+      font-family: inherit;
+      flex-shrink: 0;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .profile-copy:active { background: #f8bbd0; }
+    .profile-view .profile-group { padding: 4px 12px; }
+    .pv-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 9px 0;
+      border-bottom: 1px solid #f7e6ee;
+    }
+    .pv-item:last-child { border-bottom: 0; }
+    .pv-label { font-size: 13px; color: #7a6b71; flex: 0 0 auto; padding-top: 2px; }
+    .pv-value {
+      flex: 1;
+      min-width: 0;
+      font-size: 15px;
+      color: var(--text-main);
+      text-align: right;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .pv-value.empty { color: #b7aab0; font-style: italic; }
+
+    @media (prefers-color-scheme: dark) {
+      .profile-screen { background: #1e1118; }
+      .profile-bar { background: #2c1620; border-bottom-color: #5a2d40; }
+      .profile-bar-title, .profile-bar-btn { color: #ffb3cd; }
+      .profile-bar-btn:active { background: #5a2d40; }
+      .profile-save, .profile-save:active { background: #ff6f9c; color: #fff; }
+      .profile-tab { background: #3a1d2a; border-color: #5a2d40; color: #ffb3cd; }
+      .profile-tab.active { background: #ff6f9c; border-color: #ff6f9c; color: #fff; }
+      .profile-avatar { background: #4a2436; color: #ffb3cd; border-color: #5a2d40; }
+      .profile-avatar-hint { color: #b7a3ac; }
+      .profile-group { background: #2c1620; border-color: #5a2d40; }
+      .profile-group-title { color: #ffb3cd; }
+      .pf-label, .pv-label { color: #cbb5be; }
+      .pf-input, .pf-select, .pf-textarea { background: #3a1d2a; border-color: #5a2d40; color: #fff; }
+      .pf-select option { background: #3a1d2a; color: #fff; }
+      .profile-copy { background: #3a1d2a; border-color: #5a2d40; color: #ffb3cd; }
+      .pv-item { border-bottom-color: #3a2a32; }
+      .pv-value.empty { color: #8b7b83; }
+    }
+    @media (max-width: 340px) {
+      .profile-tab { font-size: 13px; padding: 8px 6px; }
+      .profile-scroll { padding-left: 8px; padding-right: 8px; }
+      .profile-group { padding: 8px; }
+      .pv-value { font-size: 14px; }
+      .pf-row { flex-direction: column; gap: 0; }
+    }
+
     .reaction-badge {
       position: absolute;
       right: -6px;
@@ -2259,6 +2483,9 @@
         <button class="func-item" id="btn-search" type="button" role="menuitem" aria-label="Tìm kiếm tin nhắn">
           <span class="func-icon" aria-hidden="true">🔍</span><span class="func-label">Tìm kiếm</span>
         </button>
+        <button class="func-item" id="btn-profile" type="button" role="menuitem" aria-label="Hồ sơ">
+          <span class="func-icon" aria-hidden="true">👤</span><span class="func-label">Hồ sơ</span>
+        </button>
       </div>
       <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
         <div id="sticker-grid" class="sticker-grid"></div>
@@ -2280,6 +2507,33 @@
       <div id="search-history" class="search-history"></div>
       <div id="search-results" class="search-results"></div>
     </section>
+
+    <section id="profile-screen" class="profile-screen" aria-label="Hồ sơ" aria-hidden="true">
+      <header class="profile-bar">
+        <button id="profile-back" class="profile-bar-btn" type="button" aria-label="Quay lại">←</button>
+        <div class="profile-bar-title">👤 Hồ sơ</div>
+        <button id="profile-save" class="profile-bar-btn profile-save" type="button">Lưu</button>
+      </header>
+      <div class="profile-tabs" role="tablist">
+        <button id="profile-tab-me" class="profile-tab active" type="button" role="tab" aria-selected="true">Của tôi</button>
+        <button id="profile-tab-peer" class="profile-tab" type="button" role="tab" aria-selected="false">Iu dấu</button>
+      </div>
+      <div class="profile-scroll" id="profile-scroll">
+        <div class="profile-hero">
+          <button id="profile-avatar-btn" class="profile-avatar-btn" type="button">
+            <span id="profile-avatar" class="profile-avatar">DN</span>
+            <span id="profile-avatar-hint" class="profile-avatar-hint">Chạm để đổi ảnh</span>
+          </button>
+          <div id="profile-name" class="profile-name">—</div>
+          <div id="profile-birthday" class="profile-birthday"></div>
+        </div>
+        <div id="profile-fields" class="profile-fields"></div>
+        <div id="profile-view" class="profile-view" hidden></div>
+      </div>
+      <input type="file" id="profile-avatar-file" accept="image/*"
+        style="position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none">
+    </section>
+
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
       <div id="kb-popover" class="kb-popover" aria-hidden="true"></div>
       <div id="kb-lang-toast" class="kb-lang-toast" role="status" aria-live="polite"></div>

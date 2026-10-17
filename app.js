@@ -799,6 +799,7 @@
   let coverCropOffsetY = 0;
   let coverCropPointers = new Map();
   let coverCropGesture = null;
+  let coverCropTarget = 'cover'; // 'cover' (1280, tỉ lệ ảnh bìa) | 'avatar' (256 vuông)
   let typingTimer = null;
   let lastTypingSent = 0;
   const messageIds = new Set();
@@ -941,7 +942,7 @@
   function layoutCoverCrop() {
     if (!coverCropBitmap || !coverCropStage.clientWidth || !coverCropStage.clientHeight) return;
     const coverRect = coverElement.getBoundingClientRect();
-    const ratio = coverRect.width / Math.max(1, coverRect.height);
+    const ratio = coverCropTarget === 'avatar' ? 1 : coverRect.width / Math.max(1, coverRect.height);
     const viewportHeight = window.visualViewport?.height || window.innerHeight;
     const maxHeight = Math.min(coverCropStage.clientHeight, viewportHeight * 0.8);
     const maxWidth = Math.max(1, coverCropStage.clientWidth - 24);
@@ -957,13 +958,14 @@
     renderCoverCrop();
   }
 
-  async function openCoverCrop(file) {
+  async function openCoverCrop(file, target = 'cover') {
     try {
       if (!file) return;
       if (!coverCropOverlay || !coverCropStage || !coverCropImage || !coverCropFrame) {
         throw new Error('Không tìm thấy màn hình cắt ảnh bìa.');
       }
       closeCoverCrop();
+      coverCropTarget = target === 'avatar' ? 'avatar' : 'cover';
       coverCropBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
       coverCropObjectUrl = URL.createObjectURL(file);
       coverCropImage.src = coverCropObjectUrl;
@@ -1052,9 +1054,10 @@
       throw new Error('Ảnh chưa sẵn sàng để cắt.');
     }
     const ratio = coverCropFrameSize.width / coverCropFrameSize.height;
+    const maxSide = coverCropTarget === 'avatar' ? 256 : 1280;
     const canvas = document.createElement('canvas');
-    canvas.width = ratio >= 1 ? 1280 : Math.max(1, Math.round(1280 * ratio));
-    canvas.height = ratio >= 1 ? Math.max(1, Math.round(1280 / ratio)) : 1280;
+    canvas.width = ratio >= 1 ? maxSide : Math.max(1, Math.round(maxSide * ratio));
+    canvas.height = ratio >= 1 ? Math.max(1, Math.round(maxSide / ratio)) : maxSide;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Không tạo được canvas.');
     context.fillStyle = '#fff';
@@ -1081,10 +1084,12 @@
     coverCropDone.textContent = 'Đang lưu…';
     try {
       const blob = await exportCoverCrop();
-      if (await uploadCover(blob)) closeCoverCrop();
+      const isAvatar = coverCropTarget === 'avatar';
+      const ok = isAvatar ? await uploadAvatar(blob) : await uploadCover(blob);
+      if (ok) closeCoverCrop();
     } catch (error) {
       console.error(error?.message || String(error));
-      showCoverToast('Đổi ảnh bìa thất bại: ' + (error?.message || String(error)));
+      showCoverToast((coverCropTarget === 'avatar' ? 'Đổi ảnh hồ sơ thất bại: ' : 'Đổi ảnh bìa thất bại: ') + (error?.message || String(error)));
     } finally {
       if (coverCropOverlay.classList.contains('open')) {
         coverCropDone.disabled = false;
@@ -3501,6 +3506,615 @@
     }
   }, { passive: true });
 
+  // ─── Hồ sơ (profile) ────────────────────────────────────────────────────────
+  const PROFILE_LONG_MAX = 500;
+  const PROFILE_SHORT_MAX = 60;
+  const PROFILE_DRAFT_KEY = 'dinhichat_profile_draft_v1';
+  const profileScreen = document.getElementById('profile-screen');
+  const profileBack = document.getElementById('profile-back');
+  const profileSave = document.getElementById('profile-save');
+  const profileTabMe = document.getElementById('profile-tab-me');
+  const profileTabPeer = document.getElementById('profile-tab-peer');
+  const profileScroll = document.getElementById('profile-scroll');
+  const profileAvatarBtn = document.getElementById('profile-avatar-btn');
+  const profileAvatarEl = document.getElementById('profile-avatar');
+  const profileAvatarHint = document.getElementById('profile-avatar-hint');
+  const profileNameEl = document.getElementById('profile-name');
+  const profileBirthdayEl = document.getElementById('profile-birthday');
+  const profileFieldsEl = document.getElementById('profile-fields');
+  const profileViewEl = document.getElementById('profile-view');
+  const profileAvatarFile = document.getElementById('profile-avatar-file');
+  const headerUserInfo = document.querySelector('.header-user-info');
+  const btnProfile = document.getElementById('btn-profile');
+
+  // Nhóm ô nhập theo thẻ (hồ sơ của mình)
+  const PROFILE_GROUPS = [
+    { title: 'Cơ bản', fields: [
+      { key: 'name', label: 'Biệt danh', type: 'text', placeholder: 'Tên gọi thân thương' },
+      { key: 'birthday', label: 'Ngày sinh', type: 'date' },
+      { key: 'blood_type', label: 'Nhóm máu', type: 'select', options: ['A', 'B', 'AB', 'O', 'Không rõ'], placeholder: 'Chọn nhóm máu' }
+    ]},
+    { title: 'Số đo', fields: [
+      { key: 'height_cm', label: 'Chiều cao (cm)', type: 'number', min: 50, max: 250, placeholder: 'vd 160 hoặc 160,5' },
+      { key: 'weight_kg', label: 'Cân nặng (kg)', type: 'number', min: 20, max: 300, placeholder: 'vd 50' },
+      { key: 'shoe_size', label: 'Size giày', type: 'number', min: 20, max: 55, placeholder: 'vd 38' },
+      { key: 'clothes_size', label: 'Size áo/quần', type: 'text', placeholder: 'vd M / 28' }
+    ]},
+    { title: 'Sở thích', fields: [
+      { key: 'fav_color', label: 'Màu yêu thích', type: 'text', placeholder: 'vd Hồng nhạt' },
+      { key: 'fav_food', label: 'Món yêu thích', type: 'text', placeholder: 'vd Trà sữa trân châu', copy: true },
+      { key: 'hobbies', label: 'Sở thích', type: 'textarea', placeholder: 'Nấu ăn, đi dạo, nghe nhạc...' },
+      { key: 'likes', label: 'Điều thích', type: 'textarea', placeholder: 'Những điều làm mình vui' }
+    ]},
+    { title: 'Điều không thích', fields: [
+      { key: 'dislikes', label: 'Điều không thích', type: 'textarea', placeholder: 'Những điều làm mình khó chịu' },
+      { key: 'allergies', label: 'Dị ứng / lưu ý sức khỏe', type: 'textarea', placeholder: 'vd Dị ứng tôm cua', copy: true }
+    ]},
+    { title: 'Ghi chú khác', fields: [
+      { key: 'note', label: 'Ghi chú khác', type: 'textarea', placeholder: 'Gì cũng được, mình ghi vào đây' }
+    ]}
+  ];
+  const COPY_KEYS = new Set(['shoe_size', 'clothes_size', 'fav_food', 'allergies']);
+  const profileInputs = new Map();   // key -> element nhập
+  const profileErrors = new Map();   // key -> ô lỗi
+
+  let profileOpen = false;
+  let profileWho = 'me';
+  let profileWasPink = false;
+  let profileDirty = false;
+  let profileSaving = false;
+  let profileFormReady = false;
+  let profileDraftTimer = null;
+  let profilePeerId = null;
+  let profilesChannel = null;
+
+  function todayVN() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+    } catch {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  // { left: ngày còn lại tới sinh nhật (giờ VN), age: tuổi đã tròn }
+  function birthdayInfo(birthday) {
+    if (!birthday) return null;
+    const b = String(birthday).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b)) return null;
+    const parts = b.split('-').map(Number);
+    const today = todayVN().split('-').map(Number);
+    if (!parts[0] || !parts[1] || !parts[2] || !today[0]) return null;
+    const [by, bm, bd] = parts;
+    const [ty, tm, td] = today;
+    const todayUtc = Date.UTC(ty, tm - 1, td);
+    let nextUtc = Date.UTC(ty, bm - 1, bd);
+    if (nextUtc < todayUtc) nextUtc = Date.UTC(ty + 1, bm - 1, bd);
+    const left = Math.round((nextUtc - todayUtc) / 86400000);
+    let age = ty - by;
+    if (todayUtc < Date.UTC(by, bm - 1, bd)) age -= 1;
+    return { left, age };
+  }
+
+  function formatNgaySinh(birthday) {
+    const b = String(birthday).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b)) return '';
+    const [y, m, d] = b.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  function setAvatarFallback(el, name) {
+    delete el.dataset.path;
+    el.textContent = (name || 'DN').substring(0, 2).toUpperCase();
+    el.style.backgroundImage = '';
+  }
+
+  function renderAvatarInto(el, profile) {
+    if (!el) return;
+    const path = profile && profile.avatar_path;
+    if (!path) { setAvatarFallback(el, profile && profile.name); return; }
+    const cached = signedUrlCache.get(path);
+    if (cached) {
+      el.dataset.path = path;
+      el.textContent = '';
+      el.style.backgroundImage = `url("${cached}")`;
+      return;
+    }
+    setAvatarFallback(el, profile && profile.name);
+    el.dataset.path = path;
+    getSignedUrl(path).then((url) => {
+      if (!url || el.dataset.path !== path) return;
+      el.textContent = '';
+      el.style.backgroundImage = `url("${url}")`;
+    });
+  }
+
+  function applyProfileIdentity() {
+    const p = currentProfile;
+    if (userAvatar) renderAvatarInto(userAvatar, p);
+    if (chatTitle) chatTitle.textContent = typeof festiveOn !== 'undefined' && festiveOn
+      ? '🌸 DiNhiChat 🌸'
+      : (p && p.name) || 'DiNhiChat';
+  }
+
+  function getPeerProfile() {
+    if (profilePeerId && profilesMap.get(profilePeerId)) return profilesMap.get(profilePeerId);
+    for (const p of profilesMap.values()) if (!currentUser || p.id !== currentUser.id) return p;
+    return null;
+  }
+
+  async function fetchPeerProfile() {
+    if (!currentUser) return null;
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').neq('id', currentUser.id).limit(1);
+      if (error) throw error;
+      if (data && data.length) {
+        profilePeerId = data[0].id;
+        profilesMap.set(data[0].id, { ...(profilesMap.get(data[0].id) || {}), ...data[0] });
+        try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
+        return data[0];
+      }
+    } catch (err) {
+      console.error('fetchPeerProfile error:', err);
+    }
+    return getPeerProfile();
+  }
+
+  function updateTextareaCount(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    const counter = el.closest('.pf')?.querySelector('.pf-count');
+    if (counter) counter.textContent = `${el.value.length}/${PROFILE_LONG_MAX}`;
+  }
+
+  function buildProfileForm() {
+    if (!profileFieldsEl || profileFieldsEl.childElementCount) return;
+    for (const group of PROFILE_GROUPS) {
+      const card = document.createElement('div');
+      card.className = 'profile-group';
+      const title = document.createElement('div');
+      title.className = 'profile-group-title';
+      title.textContent = group.title;
+      card.appendChild(title);
+      for (const field of group.fields) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pf';
+        const label = document.createElement('label');
+        label.className = 'pf-label';
+        label.setAttribute('for', 'pf-' + field.key);
+        label.textContent = field.label;
+        wrap.appendChild(label);
+
+        const control = document.createElement('div');
+        control.className = 'pf-control';
+        let input;
+        if (field.type === 'textarea') {
+          input = document.createElement('textarea');
+          input.rows = 3;
+          input.maxLength = PROFILE_LONG_MAX;
+          const counter = document.createElement('div');
+          counter.className = 'pf-count';
+          control.appendChild(input);
+          wrap.appendChild(control);
+          wrap.appendChild(counter);
+        } else if (field.type === 'select') {
+          input = document.createElement('select');
+          const blank = document.createElement('option');
+          blank.value = '';
+          blank.textContent = field.placeholder || 'Chọn';
+          input.appendChild(blank);
+          for (const opt of (field.options || [])) {
+            const o = document.createElement('option');
+            o.value = opt;
+            o.textContent = opt;
+            input.appendChild(o);
+          }
+          control.appendChild(input);
+          wrap.appendChild(control);
+        } else {
+          input = document.createElement('input');
+          input.type = 'text';
+          if (field.type === 'number') input.inputMode = 'decimal'; // bàn phím số iOS
+          if (field.placeholder) input.placeholder = field.placeholder;
+          control.appendChild(input);
+          wrap.appendChild(control);
+        }
+        input.className = field.type === 'textarea' ? 'pf-textarea'
+          : field.type === 'select' ? 'pf-select' : 'pf-input';
+        input.id = 'pf-' + field.key;
+        input.dataset.key = field.key;
+        if (field.max && field.type !== 'number') input.maxLength = field.max;
+
+        const err = document.createElement('div');
+        err.className = 'pf-error';
+        wrap.appendChild(err);
+
+        input.addEventListener('input', () => {
+          const e = profileErrors.get(field.key);
+          if (e) e.textContent = '';
+          if (input.tagName === 'TEXTAREA') updateTextareaCount(input);
+          profileDirty = true;
+          scheduleProfileDraft();
+        });
+        input.addEventListener('change', () => { profileDirty = true; scheduleProfileDraft(); });
+        // Ô đang nhập tự cuộn vào giữa vùng nhìn thấy
+        input.addEventListener('focus', () => {
+          setTimeout(() => { try { input.scrollIntoView({ block: 'center' }); } catch {} }, 250);
+        });
+
+        profileInputs.set(field.key, input);
+        profileErrors.set(field.key, err);
+        card.appendChild(wrap);
+      }
+      profileFieldsEl.appendChild(card);
+    }
+  }
+
+  function collectFormValues() {
+    const out = {};
+    for (const [key, el] of profileInputs) out[key] = el.value;
+    return out;
+  }
+
+  function scheduleProfileDraft() {
+    clearTimeout(profileDraftTimer);
+    profileDraftTimer = setTimeout(() => {
+      if (!profileDirty) return;
+      lsSet(PROFILE_DRAFT_KEY, { at: Date.now(), values: collectFormValues() });
+    }, 500);
+  }
+
+  function clearProfileDraft() {
+    clearTimeout(profileDraftTimer);
+    try { localStorage.removeItem(PROFILE_DRAFT_KEY); } catch {}
+  }
+
+  function populateProfileForm() {
+    buildProfileForm();
+    const draft = lsGet(PROFILE_DRAFT_KEY);
+    const source = { ...(currentProfile || {}), ...((draft && draft.values) || {}) };
+    for (const [key, el] of profileInputs) {
+      const value = source[key];
+      el.value = value == null ? '' : String(value);
+      const err = profileErrors.get(key);
+      if (err) err.textContent = '';
+      updateTextareaCount(el);
+    }
+    profileDirty = !!(draft && draft.values);
+  }
+
+  function renderProfileHero() {
+    if (!profileScreen) return;
+    const isMe = profileWho === 'me';
+    const peer = getPeerProfile();
+    const p = isMe ? currentProfile : peer;
+    if (profileTabPeer) profileTabPeer.textContent = (peer && peer.name) || 'Iu dấu';
+    if (profileAvatarBtn) profileAvatarBtn.disabled = !isMe;
+    if (profileAvatarHint) profileAvatarHint.hidden = !isMe;
+    profileNameEl.textContent = (p && p.name) || (isMe ? 'Bạn' : 'Iu dấu');
+    renderAvatarInto(profileAvatarEl, p);
+    const bits = [];
+    const info = birthdayInfo(p && p.birthday);
+    if (p && p.birthday && formatNgaySinh(p.birthday)) bits.push('🎂 ' + formatNgaySinh(p.birthday));
+    if (info) {
+      bits.push(info.left === 0 ? 'Hôm nay sinh nhật 🎉' : `còn ${info.left} ngày tới sinh nhật`);
+      bits.push(`${info.age} tuổi`);
+    }
+    profileBirthdayEl.textContent = bits.join(' · ')
+      || (isMe ? 'Chưa cập nhật ngày sinh' : 'Chưa cập nhật');
+  }
+
+  function renderProfileView() {
+    if (!profileViewEl) return;
+    profileViewEl.textContent = '';
+    const peer = getPeerProfile();
+    if (!peer) {
+      const empty = document.createElement('div');
+      empty.className = 'profile-empty';
+      empty.textContent = 'Chưa cập nhật';
+      profileViewEl.appendChild(empty);
+      return;
+    }
+    for (const group of PROFILE_GROUPS) {
+      const card = document.createElement('div');
+      card.className = 'profile-group';
+      const title = document.createElement('div');
+      title.className = 'profile-group-title';
+      title.textContent = group.title;
+      card.appendChild(title);
+      for (const field of group.fields) {
+        let value = peer[field.key];
+        if (field.key === 'birthday') value = formatNgaySinh(value);
+        value = value == null || value === '' ? '' : String(value);
+        const row = document.createElement('div');
+        row.className = 'pv-item';
+        const lab = document.createElement('div');
+        lab.className = 'pv-label';
+        lab.textContent = field.label;
+        const val = document.createElement('div');
+        val.className = 'pv-value' + (value ? '' : ' empty');
+        val.textContent = value || 'Chưa cập nhật';
+        row.appendChild(lab);
+        row.appendChild(val);
+        if (COPY_KEYS.has(field.key) && value) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'profile-copy';
+          btn.textContent = 'Sao chép';
+          btn.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              showAppToast('Đã sao chép');
+            } catch {
+              try {
+                const ta = document.createElement('textarea');
+                ta.value = value;
+                ta.style.position = 'fixed';
+                ta.style.left = '-10000px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+                showAppToast('Đã sao chép');
+              } catch { showAppToast('Không sao chép được'); }
+            }
+          });
+          row.appendChild(btn);
+        }
+        card.appendChild(row);
+      }
+      profileViewEl.appendChild(card);
+    }
+  }
+
+  function switchProfileTab(who) {
+    profileWho = who === 'peer' ? 'peer' : 'me';
+    const isMe = profileWho === 'me';
+    if (profileTabMe) {
+      profileTabMe.classList.toggle('active', isMe);
+      profileTabMe.setAttribute('aria-selected', String(isMe));
+    }
+    if (profileTabPeer) {
+      profileTabPeer.classList.toggle('active', !isMe);
+      profileTabPeer.setAttribute('aria-selected', String(!isMe));
+    }
+    if (profileSave) profileSave.hidden = !isMe;
+    if (profileFieldsEl) profileFieldsEl.hidden = !isMe;
+    if (profileViewEl) profileViewEl.hidden = isMe;
+    if (isMe) {
+      if (!profileFormReady) { populateProfileForm(); profileFormReady = true; }
+      if (profileSave) profileSave.hidden = false;
+    } else {
+      renderProfileView();
+    }
+    renderProfileHero();
+    if (profileScroll) profileScroll.scrollTop = 0;
+  }
+
+  async function openProfile(who = 'me') {
+    if (!profileScreen || !currentUser || profileOpen) return;
+    closeFuncPanel();
+    closeStickerPanel();
+    profileWasPink = pinkKeyboardOpen;
+    if (profileWasPink) closePinkKeyboard();
+    resetToNativeKeyboard();          // hồ sơ dùng bàn phím iOS, KHÔNG dùng #kb hồng
+    if (messageInput) messageInput.blur();
+    profileOpen = true;
+    profileScreen.classList.add('open');
+    profileScreen.setAttribute('aria-hidden', 'false');
+    if (who === 'peer') await fetchPeerProfile();
+    if (who === 'me') { populateProfileForm(); profileFormReady = true; }
+    switchProfileTab(who);
+    if (profileScroll) profileScroll.scrollTop = 0;
+  }
+
+  function closeProfile(force = false) {
+    if (!profileOpen || !profileScreen) return;
+    if (!force && profileWho === 'me' && profileDirty) {
+      if (!window.confirm('Bỏ thay đổi?')) return;
+      clearProfileDraft();
+      profileDirty = false;
+      profileFormReady = false;
+    }
+    profileOpen = false;
+    profileScreen.classList.remove('open');
+    profileScreen.setAttribute('aria-hidden', 'true');
+    clearTimeout(profileDraftTimer);
+    const active = document.activeElement;
+    if (active && profileScreen.contains(active) && active.blur) active.blur();
+    if (profileWasPink) {
+      profileWasPink = false;
+      try { usePinkKeyboard(); } catch {}
+    }
+  }
+
+  async function saveProfile() {
+    if (profileSaving || profileWho !== 'me' || !currentUser || !profileInputs.size) return;
+    const payload = {};
+    let firstBad = null;
+    for (const group of PROFILE_GROUPS) {
+      for (const field of group.fields) {
+        const el = profileInputs.get(field.key);
+        const err = profileErrors.get(field.key);
+        if (!el) continue;
+        if (err) err.textContent = '';
+        const raw = (el.value || '').trim();
+        let value = null;
+        if (raw) {
+          if (field.type === 'number') {
+            const norm = raw.replace(/\s/g, '').replace(',', '.');
+            if (!/^\d+(\.\d+)?$/.test(norm)) {
+              if (err) err.textContent = 'Nhập số, dùng dấu phẩy hoặc chấm';
+              firstBad = firstBad || el;
+              continue;
+            }
+            const num = Number(norm);
+            if (num < field.min) {
+              if (err) err.textContent = `Phải từ ${field.min} trở lên`;
+              firstBad = firstBad || el;
+              continue;
+            }
+            if (num > field.max) {
+              if (err) err.textContent = `Tối đa ${field.max}`;
+              firstBad = firstBad || el;
+              continue;
+            }
+            value = num;
+          } else {
+            const limit = field.type === 'textarea' ? PROFILE_LONG_MAX : PROFILE_SHORT_MAX;
+            if (raw.length > limit) {
+              if (err) err.textContent = `Tối đa ${limit} ký tự`;
+              firstBad = firstBad || el;
+              continue;
+            }
+            value = raw;
+          }
+        }
+        const current = currentProfile ? currentProfile[field.key] : null;
+        const currentNorm = current == null || current === ''
+          ? null
+          : (field.type === 'number' ? Number(current) : String(current));
+        const nextNorm = value == null ? null : (field.type === 'number' ? Number(value) : value);
+        if (currentNorm !== nextNorm) payload[field.key] = value;
+      }
+    }
+    if (firstBad) {
+      try { firstBad.focus(); firstBad.scrollIntoView({ block: 'center' }); } catch {}
+      return;
+    }
+    if (!Object.keys(payload).length) {
+      profileDirty = false;
+      clearProfileDraft();
+      showAppToast('Chưa có gì thay đổi');
+      return;
+    }
+    profileSaving = true;
+    if (profileSave) { profileSave.disabled = true; profileSave.textContent = 'Đang lưu…'; }
+    try {
+      payload.profile_updated_at = new Date().toISOString();
+      const { error } = await supabase.from('profiles').update(payload).eq('id', currentUser.id);
+      if (error) throw error;
+      currentProfile = { ...(currentProfile || { id: currentUser.id }), ...payload };
+      profilesMap.set(currentUser.id, { ...(profilesMap.get(currentUser.id) || {}), ...currentProfile });
+      try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
+      profileDirty = false;
+      clearProfileDraft();
+      applyProfileIdentity();
+      refreshSenderNames();
+      renderProfileHero();
+      showAppToast('Đã lưu hồ sơ 💕');
+    } catch (error) {
+      console.error('saveProfile error:', error);
+      showAppToast('Lưu hồ sơ thất bại: ' + (error?.message || String(error)));
+      saveProfileDraft();
+    } finally {
+      profileSaving = false;
+      if (profileSave) { profileSave.disabled = false; profileSave.textContent = 'Lưu'; }
+    }
+  }
+
+  function saveProfileDraft() {
+    if (!profileDirty) return;
+    lsSet(PROFILE_DRAFT_KEY, { at: Date.now(), values: collectFormValues() });
+  }
+
+  function refreshSenderNames() {
+    document.querySelectorAll('.message-row .sticker-sender').forEach((el) => {
+      const row = el.closest('.message-row');
+      try { el.textContent = senderName(JSON.parse(row.dataset.msg)); } catch {}
+    });
+  }
+
+  // Đổi ảnh hồ sơ: tải lên bucket, lưu profiles.avatar_path ngay (không cần bấm Lưu)
+  async function uploadAvatar(blob) {
+    if (!currentUser || !blob) return false;
+    try {
+      const path = `${currentUser.id}/avatars/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from('chat-images').upload(path, blob, {
+        contentType: 'image/jpeg'
+      });
+      if (uploadError) throw uploadError;
+      const { error: updateError } = await supabase.from('profiles')
+        .update({ avatar_path: path, profile_updated_at: new Date().toISOString() })
+        .eq('id', currentUser.id);
+      if (updateError) throw updateError;
+      signedUrlCache.delete(path);
+      currentProfile = { ...(currentProfile || { id: currentUser.id }), avatar_path: path };
+      profilesMap.set(currentUser.id, { ...(profilesMap.get(currentUser.id) || {}), ...currentProfile });
+      try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
+      applyProfileIdentity();
+      refreshSenderNames();
+      renderProfileHero();
+      showAppToast('Đã đổi ảnh hồ sơ 💕');
+      return true;
+    } catch (error) {
+      console.error('uploadAvatar error:', error);
+      showCoverToast('Đổi ảnh hồ sơ thất bại: ' + (error?.message || String(error)));
+      return false;
+    }
+  }
+
+  function subscribeProfilesChange() {
+    if (profilesChannel) {
+      try { supabase.removeChannel(profilesChannel); } catch {}
+      profilesChannel = null;
+    }
+    if (!currentUser) return;
+    profilesChannel = supabase.channel('profiles-updates')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+        const row = payload && payload.new;
+        if (!row || !row.id) return;
+        profilesMap.set(row.id, { ...(profilesMap.get(row.id) || {}), ...row });
+        try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
+        if (currentUser && row.id === currentUser.id) {
+          currentProfile = { ...(currentProfile || {}), ...row };
+          applyProfileIdentity();
+          if (profileOpen && profileWho === 'me' && !profileDirty) {
+            populateProfileForm();
+            profileFormReady = true;
+          }
+        } else if (profileOpen && profileWho === 'peer') {
+          renderProfileView();
+          renderProfileHero();
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setTimeout(subscribeProfilesChange, 2000);
+        }
+      });
+  }
+
+  btnProfile?.addEventListener('click', () => { closeFuncPanel(); openProfile('me'); });
+  profileBack?.addEventListener('click', () => closeProfile());
+  profileSave?.addEventListener('click', saveProfile);
+  profileTabMe?.addEventListener('click', () => switchProfileTab('me'));
+  profileTabPeer?.addEventListener('click', () => switchProfileTab('peer'));
+  profileAvatarBtn?.addEventListener('click', () => {
+    if (profileWho !== 'me' || !profileAvatarFile) return;
+    profileAvatarFile.click();
+  });
+  profileAvatarFile?.addEventListener('change', () => {
+    const file = profileAvatarFile.files && profileAvatarFile.files[0];
+    profileAvatarFile.value = '';
+    if (file) openCoverCrop(file, 'avatar');
+  });
+  // Bấm avatar/tên ở header = hồ sơ của mình
+  if (headerUserInfo) headerUserInfo.style.cursor = 'pointer';
+  headerUserInfo?.addEventListener('click', () => openProfile('me'));
+  // Bấm tên người kia trên tin (sticker) = hồ sơ người kia
+  messagesContainer?.addEventListener('click', (event) => {
+    if (event.target?.closest?.('.sticker-sender')) openProfile('peer');
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (!profileOpen) return;
+      const el = document.activeElement;
+      if (el && profileScreen.contains(el) && el.matches?.('input, textarea')) {
+        setTimeout(() => { try { el.scrollIntoView({ block: 'center' }); } catch {} }, 60);
+      }
+    });
+  }
+
   // ─── Image overlay ────────────────────────────────────────────────────────────
   if (imgOverlay && imgOverlayImg) {
     imgOverlay.addEventListener('click', () => { imgOverlay.classList.remove('open'); imgOverlayImg.src = ''; });
@@ -3921,6 +4535,8 @@
       }
 
       await loadProfiles();
+      applyProfileIdentity();
+      subscribeProfilesChange();
       loadStreakCache();
       refreshStreak();
       checkFestive();
@@ -3942,6 +4558,8 @@
     if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
     if (typingChannel) { supabase.removeChannel(typingChannel); typingChannel = null; }
     if (coverChannel) { supabase.removeChannel(coverChannel); coverChannel = null; }
+    if (profilesChannel) { try { supabase.removeChannel(profilesChannel); } catch {} profilesChannel = null; }
+    if (profileOpen) closeProfile(true);
     hideTyping();
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');
