@@ -76,7 +76,12 @@
   let fitViewportFrame = null;
   let lastViewportHeight = null;
   let lastViewportTop = null;
-  let messagesNearBottom = true;
+  let stickBottom = true;         // CHỈ sự kiện 'scroll' của #list mới được cập nhật cờ này (<80px)
+  let lastUserScrollAt = 0;       // thời điểm cuộn/touchmove gần nhất (hoãn sync khi đang cuộn)
+  let newMsgCount = 0;            // tin mới chưa xem khi stickBottom=false
+  let bottomSettleTimer = null;
+  let loadingOlder = false;       // chống tải trùng khi cuộn lên đầu
+  let noMoreOlder = false;        // đã tải hết tin cũ
   let jumpLockUntil = 0;          // chặn auto-scroll 800ms sau khi nhảy tới tin cũ
   let viewingOldMessages = false; // đang xem tin cũ (có khoảng hở): không tự cuộn đáy
   let inputFocusPending = false;
@@ -158,7 +163,7 @@
     const keyboardHeight = customKeyboard.getBoundingClientRect().height;
     document.documentElement.style.setProperty('--cover-shift', `${-Math.round(keyboardHeight * .35)}px`);
     scheduleKeyboardCoordinateCache();
-    scrollMessagesAfterKeyboard(messagesNearBottom);
+    scrollMessagesAfterKeyboard();
   }
 
   function closePinkKeyboard() {
@@ -170,7 +175,7 @@
     pinkKeyboardOpen = false;
     clearTimeout(deleteRepeatTimer);
     deleteRepeatTimer = null;
-    scrollMessagesAfterKeyboard(messagesNearBottom);
+    scrollMessagesAfterKeyboard();
   }
 
   function useNativeKeyboard() {
@@ -642,15 +647,13 @@
     }
   }, true);
 
-  function scrollMessagesAfterKeyboard(shouldFollow) {
-    if (!shouldFollow) return;
-    const scrollToBottom = () => {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      messagesNearBottom = true;
-    };
-    requestAnimationFrame(() => requestAnimationFrame(scrollToBottom));
+  function scrollMessagesAfterKeyboard() {
+    // Mọi lệnh cuộn đáy đều đi qua scrollToBottom(reason) — ở đây reason='keyboard'
+    // nên CHỈ cuộn khi stickBottom=true (giữ nguyên vị trí đọc khi không ở đáy).
+    scrollToBottom('keyboard');
+    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('keyboard')));
     clearTimeout(keyboardBottomTimer);
-    keyboardBottomTimer = setTimeout(scrollToBottom, 350);
+    keyboardBottomTimer = setTimeout(() => scrollToBottom('keyboard'), 350);
   }
 
   // Debounce viewport: 1 RAF/khung hình, chỉ áp dụng khi bắt đầu trượt (1 lần)
@@ -689,11 +692,8 @@
   function settleViewport() {
     viewportAnimating = false;
     if (!pinkKeyboardOpen) applyViewportMetrics(true);
-    // Cuộn #list đúng 1 lần sau khi chiều cao ổn định, không smooth.
-    if (messagesNearBottom || inputFocusPending) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      messagesNearBottom = true;
-    }
+    // Cuộn #list đúng 1 lần sau khi chiều cao ổn định, không smooth (chỉ khi stickBottom).
+    scrollToBottom('viewport');
     inputFocusPending = false;
   }
 
@@ -1270,7 +1270,7 @@
   window.addEventListener('resize', updateInputMirrorMetrics);
   window.addEventListener('orientationchange', () => setTimeout(updateInputMirrorMetrics, 300));
 
-  function resizeMessageInput(shouldFollow = messagesNearBottom) {
+  function resizeMessageInput() {
     if (messageInput.tagName !== 'TEXTAREA') return;
     inputMirror.value = messageInput.value;
     const contentHeight = inputMirror.scrollHeight;
@@ -1283,7 +1283,7 @@
     lastAppliedInputOverflow = nextOverflow;
     messageInput.style.height = roundedHeight + 'px';
     messageInput.style.overflowY = nextOverflow;
-    followMessagesAfterResize(shouldFollow);
+    scrollToBottom('input');
   }
 
   function replySnippet(message, maxLength = 20) {
@@ -1571,22 +1571,95 @@
     stickerPanel.setAttribute('aria-hidden', 'true');
   }
 
-  function nearMessagesBottom() {
-    return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 150;
+  // ─── Cuộn đáy: MỘT hàm duy nhất + cờ stickBottom ───────────────────────────
+  function isAtBottom() {
+    return messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 80;
   }
 
-  function followMessagesAfterResize(shouldFollow = messagesNearBottom) {
-    if (!shouldFollow) return;
-    if (Date.now() < jumpLockUntil) return;
-    if (viewingOldMessages) return;
-    requestAnimationFrame(() => {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    });
+  function updateNewMsgButton() {
+    if (!newMessagesButton) return;
+    if (newMsgCount > 0 && !stickBottom) {
+      newMessagesButton.textContent = '↓ Tin mới (' + newMsgCount + ')';
+      newMessagesButton.classList.add('visible');
+    } else {
+      newMessagesButton.classList.remove('visible');
+    }
   }
 
+  // reason: 'mySend' | 'jumpDown' | 'init' → LUÔN cuộn xuống đáy.
+  // Mọi reason khác ('auto','sync','newMsg','image','keyboard','viewport','resize','input')
+  // CHỈ cuộn khi stickBottom=true (không kéo người dùng khỏi tin đang đọc).
+  function scrollToBottom(reason = 'auto') {
+    const forced = reason === 'mySend' || reason === 'jumpDown' || reason === 'init';
+    if (!forced && !stickBottom) return false;
+    if (!forced && Date.now() < jumpLockUntil) return false;
+    if (viewingOldMessages && !forced) return false;
+    const apply = (delayed) => {
+      if (delayed && !forced && !stickBottom) return; // người dùng vừa cuộn lên → dừng ngay
+      try { messagesContainer.scrollTop = messagesContainer.scrollHeight; } catch {}
+    };
+    apply(false);
+    requestAnimationFrame(() => apply(true));
+    clearTimeout(bottomSettleTimer);
+    bottomSettleTimer = setTimeout(() => apply(true), 150);
+    if (forced) { newMsgCount = 0; updateNewMsgButton(); }
+    return true;
+  }
+
+  // Thoát "đang xem tin cũ": nạp lại 100 tin gần nhất rồi về đáy.
+  function exitOldView() {
+    if (!viewingOldMessages) return;
+    viewingOldMessages = false;
+    Promise.resolve(syncMessages())
+      .then(() => { scrollToBottom('jumpDown'); })
+      .catch(() => {});
+  }
+
+  // Tải thêm tin cũ khi cuộn lên đầu: chỉ khi scrollTop < 200, chống tải trùng;
+  // insertMsgSorted bù scrollTop khi chèn lên trên (mục 5).
+  async function maybeLoadOlder() {
+    if (loadingOlder || noMoreOlder) return;
+    if (messagesContainer.scrollTop >= 200) return;
+    const bounds = chronoBounds();
+    if (!bounds.first) return;
+    loadingOlder = true;
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .lt('created_at', bounds.first)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      const rows = [...(data || [])].reverse();
+      if (!rows.length) noMoreOlder = true;
+      for (const m of rows) {
+        if (document.getElementById('msg-' + m.id)) continue;
+        if (messageIds.has(m.id)) messageIds.delete(m.id);
+        await addMsg(m, false, { sorted: true });
+      }
+      // Không thêm được gì → không hỏi lại (chống lặp truy vấn cũ).
+      if (!rows.length || chronoBounds().first === bounds.first) noMoreOlder = true;
+      if (rows.length) saveMsgsToCache();
+    } catch (err) {
+      console.error('maybeLoadOlder error:', err);
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
+  const markUserScrolling = () => { lastUserScrollAt = Date.now(); };
+  messagesContainer.addEventListener('touchmove', markUserScrolling, { passive: true });
+  messagesContainer.addEventListener('wheel', markUserScrolling, { passive: true });
   messagesContainer.addEventListener('scroll', () => {
-    messagesNearBottom = nearMessagesBottom();
-    if (viewingOldMessages && messagesNearBottom && Date.now() >= jumpLockUntil) exitOldView();
+    lastUserScrollAt = Date.now();
+    // NƠI DUY NHẤT được cập nhật stickBottom.
+    stickBottom = isAtBottom();
+    if (stickBottom) {
+      if (newMsgCount) { newMsgCount = 0; updateNewMsgButton(); }
+      if (viewingOldMessages && Date.now() >= jumpLockUntil) exitOldView();
+    }
+    if (messagesContainer.scrollTop < 200) maybeLoadOlder();
   }, { passive: true });
   let lastMessagesHeightObserved = Math.round(messagesContainer.getBoundingClientRect().height);
   if ('ResizeObserver' in window) {
@@ -1594,25 +1667,9 @@
       const height = Math.round(entries[0]?.contentRect?.height ?? 0);
       if (height === lastMessagesHeightObserved) return;
       lastMessagesHeightObserved = height;
-      followMessagesAfterResize(messagesNearBottom || inputFocusPending);
+      scrollToBottom('resize'); // trong hàm: chỉ cuộn khi stickBottom
     });
     messagesResizeObserver.observe(messagesContainer);
-  }
-
-  function scrollMessagesToBottom() {
-    if (viewingOldMessages || Date.now() < jumpLockUntil) return;
-    messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
-    if (newMessagesButton) newMessagesButton.classList.remove('visible');
-  }
-
-  // Thoát chế độ "đang xem tin cũ": tải 100 tin gần nhất + cuộn xuống đáy.
-  function exitOldView() {
-    if (!viewingOldMessages) return;
-    viewingOldMessages = false;
-    if (newMessagesButton) newMessagesButton.classList.remove('visible');
-    Promise.resolve(syncMessages())
-      .then(() => { try { messagesContainer.scrollTop = messagesContainer.scrollHeight; } catch {} })
-      .catch(() => {});
   }
 
   function animateMessage(row, isSelf) {
@@ -1960,7 +2017,7 @@
     row.dataset.sendStatus = 'sending';
     row.classList.add('is-sending');
     renderSeen();
-    scrollMessagesToBottom();
+    scrollToBottom('mySend');
     if (message.image_path || message.is_sticker) {
       animateSendGatherEffect(row);
     } else if (useTextFlight) {
@@ -2391,7 +2448,7 @@
           img.src = url;
           img.onload = () => {
             img.style.minHeight = '';
-            if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            if (scroll) scrollToBottom('image');
           };
         }
       });
@@ -2451,7 +2508,7 @@
     if (canReact) renderReactionBadges(row);
     if (options.animate) animateMessage(row, isSelf);
     renderSeen();
-    if (scroll) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    if (scroll) scrollToBottom('addMsg');
     return row;
   }
 
@@ -2799,6 +2856,11 @@
   // ─── Sync 50 latest messages ─────────────────────────────────────────────────
   async function syncMessages() {
     if (!currentUser) return;
+    // Không sync khi người dùng đang cuộn: hoãn 500ms/lần, tối đa 4 lần.
+    for (let i = 0; i < 4 && Date.now() - lastUserScrollAt < 300; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (Date.now() - lastUserScrollAt < 300) return;
     const { data, error } = await supabase
       .from('messages')
       .select('*')
@@ -2806,22 +2868,41 @@
       .limit(100);
     if (error) { console.error('syncMessages error:', error); return; }
     if (data && data.length > 0) {
+      const prevNewest = chronoBounds().last; // null = lần tải đầu khi mở app
       const sorted = data.reverse();
-      let addedNew = false;
+      let addedNew = 0;
       for (const msg of sorted) {
-        if (!messageIds.has(msg.id) && !document.getElementById('msg-' + msg.id)) addedNew = true;
+        if (document.getElementById('msg-' + msg.id)) continue; // chỉ addMsg tin còn thiếu
+        if (messageIds.has(msg.id)) messageIds.delete(msg.id);   // id có nhưng thiếu DOM → vẽ lại
         await addMsg(msg, false, { sorted: true });
+        if (!prevNewest || msg.created_at > prevNewest) addedNew++;
       }
-      // Đang xem tin cũ: không kéo người dùng về đáy, chỉ hiện nút "↓ Tin mới".
-      if (viewingOldMessages) {
-        if (addedNew && newMessagesButton) newMessagesButton.classList.add('visible');
-      } else {
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      }
-      saveMsgsToCache();
-      renderSeen();
+      if (prevNewest === null) scrollToBottom('init');          // lần tải đầu khi mở app
+      else if (addedNew && stickBottom) scrollToBottom('sync'); // ở đáy thì mới theo dõi
+      if (addedNew && !stickBottom) { newMsgCount += addedNew; updateNewMsgButton(); }
+      if (addedNew || prevNewest === null) { saveMsgsToCache(); renderSeen(); }
+      // KHÔNG đổi scrollTop ở đây (trừ 2 nhánh cuộn hợp lệ ở trên).
       await markRead();
       await loadReactionsForMessages();
+    }
+  }
+
+  // Nhận tin mới (realtime INSERT) — MỘT nơi quyết định cuộn hay hiện nút (N).
+  async function handleIncomingMessage(msg) {
+    if (!msg) return;
+    const alreadyRendered = !!document.getElementById('msg-' + msg.id);
+    await addMsg(msg, false, { animate: !alreadyRendered, sorted: true });
+    if (!alreadyRendered) {
+      const isMine = !!(currentUser && msg.sender_id === currentUser.id);
+      if (isMine) scrollToBottom('mySend');                 // mình gửi → luôn xuống
+      else if (stickBottom) scrollToBottom('newMsg');        // đang ở đáy → tự xuống
+      else { newMsgCount++; updateNewMsgButton(); }          // đang đọc cũ → hiện nút (N)
+    }
+    saveMsgsToCache();
+    scheduleStreakRefresh();
+    if (currentUser && msg.sender_id !== currentUser.id) {
+      hideTyping();
+      markRead();
     }
   }
 
@@ -2836,24 +2917,7 @@
         { event: 'INSERT', schema: 'public', table: 'messages' },
         async (payload) => {
           if (payload.new) {
-            const alreadyRendered = messageIds.has(payload.new.id);
-            const wasNearBottom = nearMessagesBottom();
-            await addMsg(payload.new, false, { animate: !alreadyRendered, sorted: true });
-            if (viewingOldMessages) {
-              // Không kéo khỏi tin đang xem; tin mới vẫn lưu + hiện nút "↓ Tin mới".
-              if (newMessagesButton) newMessagesButton.classList.add('visible');
-            } else if (currentUser && payload.new.sender_id !== currentUser.id) {
-              if (wasNearBottom) scrollMessagesToBottom();
-              else if (newMessagesButton) newMessagesButton.classList.add('visible');
-            } else if (!alreadyRendered) {
-              scrollMessagesToBottom();
-            }
-            saveMsgsToCache();
-            scheduleStreakRefresh();
-            if (currentUser && payload.new.sender_id !== currentUser.id) {
-              hideTyping();
-              markRead();
-            }
+            await handleIncomingMessage(payload.new);
           }
         }
       )
@@ -2886,7 +2950,7 @@
     const cached = lsGet(CACHE_MSGS_KEY);
     if (cached && cached.length > 0) {
       for (const msg of cached) await addMsg(msg, false);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      scrollToBottom('init');
       renderSeen();
     }
     // Then fetch from server
@@ -3338,7 +3402,7 @@
     row.classList.add('msg-highlight');
     setTimeout(() => row.classList.remove('msg-highlight'), 1500);
     // Nếu không có khoảng hở / nội dung vừa khít màn hình thì về lại bình thường.
-    setTimeout(() => { if (viewingOldMessages && nearMessagesBottom()) exitOldView(); }, 900);
+    setTimeout(() => { if (viewingOldMessages && isAtBottom()) exitOldView(); }, 900);
   }
 
   function openSearch() {
@@ -3435,12 +3499,12 @@
         clearReply();
       }
     });
-    if (pinkKeyboardOpen) scrollMessagesAfterKeyboard(true);
+    if (pinkKeyboardOpen) scrollToBottom('mySend');
     await pendingSend;
     scheduleStreakRefresh();
     clearReply();
     keepMessageInputFocused();
-    scrollMessagesToBottom();
+    scrollToBottom('mySend');
   }
 
   // ─── Chuỗi giữ lửa (streak) ────────────────────────────────────────────────
@@ -3954,8 +4018,8 @@
     sendMessage();
   });
   if (newMessagesButton) newMessagesButton.addEventListener('click', () => {
-    if (viewingOldMessages) { exitOldView(); return; }
-    scrollMessagesToBottom();
+    if (viewingOldMessages) { exitOldView(); return; } // exitOldView tự nạp + cuộn
+    scrollToBottom('jumpDown'); // forced → reset đếm "↓ Tin mới (N)"
   });
   replyCancel.addEventListener('click', clearReply);
   messageInput.addEventListener('input', () => {
@@ -3971,7 +4035,7 @@
   });
   messageInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-    else if (e.key === 'Enter' && e.shiftKey) followMessagesAfterResize(messagesNearBottom);
+    else if (e.key === 'Enter' && e.shiftKey) scrollToBottom('input');
   });
   resizeMessageInput();
   updateSendButtonVisibility();
