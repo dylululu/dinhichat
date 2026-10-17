@@ -789,21 +789,26 @@
   let realtimeChannel = null;
   let typingChannel = null;
   let coverChannel = null;
-  let coverCropBitmap = null;
-  let coverCropObjectUrl = null;
+  // Mô hình crop duy nhất: s (coverCropScale) = px màn hình/1px ảnh; tx, ty = toạ độ
+  // góc trên-trái ảnh so với góc trên-trái khung (px màn hình); khung có kích thước
+  // coverCropFrameSize lưu 1 lần khi mở (chỉ tính lại khi resize/orientation).
+  let coverCropBitmap = null;                 // nguồn ảnh (ImageBitmap đã đúng chiều EXIF, hoặc canvas sau khi Xoay)
   let coverCropFrameSize = { width: 0, height: 0 };
-  let coverCropBaseScale = 1;
-  let coverCropZoomValue = 1;
-  let coverCropRotation = 0;
-  let coverCropOffsetX = 0;
-  let coverCropOffsetY = 0;
+  let coverCropFramePos = { x: 0, y: 0 };     // khung trong stage (px CSS)
+  let coverCropScale = 1;                     // s
+  let coverCropMinScale = 1;
+  let coverCropMaxScale = 1;
+  let coverCropTx = 0;
+  let coverCropTy = 0;
+  let coverCropRotation = 0;                  // chỉ để hiển thị/đổi nguồn khi bấm Xoay
   let coverCropPointers = new Map();
   let coverCropGesture = null;
-  let coverCropTarget = 'cover'; // 'cover' (1280, tỉ lệ ảnh bìa) | 'avatar' (256 vuông)
+  let coverCropTarget = 'cover';              // 'cover' (tỉ lệ khung, ≤1280px) | 'avatar' (vòng tròn D, xuất vuông 512px)
   let typingTimer = null;
   let lastTypingSent = 0;
   const messageIds = new Set();
   const signedUrlCache = new Map();
+  let avatarBlobUrl = null; // blob URL ảnh hồ sơ vừa cắt (hiện ngay khi bấm Xong, trước khi upload xong)
   const coverUrlCache = new Map();
   const profilesMap = new Map();
   const messageCache = new Map();
@@ -918,43 +923,76 @@
       .subscribe();
   }
 
+  // Clamp: tx ∈ [khungW - ảnhW*s, 0], ty tương tự (ảnh luôn phủ kín khung).
   function clampCoverCropPosition() {
-    if (!coverCropBitmap || !coverCropFrameSize.width || !coverCropFrameSize.height) return;
-    const rotated = Math.abs(coverCropRotation % 180) === 90;
-    const renderedWidth = (rotated ? coverCropBitmap.height : coverCropBitmap.width) * coverCropBaseScale * coverCropZoomValue;
-    const renderedHeight = (rotated ? coverCropBitmap.width : coverCropBitmap.height) * coverCropBaseScale * coverCropZoomValue;
-    const maxX = Math.max(0, (renderedWidth - coverCropFrameSize.width) / 2);
-    const maxY = Math.max(0, (renderedHeight - coverCropFrameSize.height) / 2);
-    coverCropOffsetX = Math.max(-maxX, Math.min(maxX, coverCropOffsetX));
-    coverCropOffsetY = Math.max(-maxY, Math.min(maxY, coverCropOffsetY));
+    if (!coverCropBitmap) return;
+    const renderedWidth = coverCropBitmap.width * coverCropScale;
+    const renderedHeight = coverCropBitmap.height * coverCropScale;
+    coverCropTx = Math.max(Math.min(0, coverCropFrameSize.width - renderedWidth), Math.min(0, coverCropTx));
+    coverCropTy = Math.max(Math.min(0, coverCropFrameSize.height - renderedHeight), Math.min(0, coverCropTy));
   }
 
   function renderCoverCrop() {
-    if (!coverCropBitmap) return;
+    if (!coverCropBitmap || !coverCropFrameSize.width) return;
     clampCoverCropPosition();
-    coverCropImage.style.width = `${coverCropBitmap.width * coverCropBaseScale}px`;
-    coverCropImage.style.height = `${coverCropBitmap.height * coverCropBaseScale}px`;
-    coverCropImage.style.transform = `translate(-50%, -50%) translate(${coverCropOffsetX}px, ${coverCropOffsetY}px) scale(${coverCropZoomValue}) rotate(${coverCropRotation}deg)`;
-    coverCropZoom.value = String(coverCropZoomValue);
-    coverCropZoomLabel.textContent = `${coverCropZoomValue.toFixed(1)}×`;
+    // Ảnh = bmp vẽ ở (tx, ty) với kích thước bmp.width*s; transform-origin 0 0.
+    coverCropImage.style.left = `${coverCropFramePos.x}px`;
+    coverCropImage.style.top = `${coverCropFramePos.y}px`;
+    coverCropImage.style.transform = `translate(${coverCropTx}px, ${coverCropTy}px) scale(${coverCropScale})`;
+    const zoom = coverCropMinScale > 0 ? coverCropScale / coverCropMinScale : 1;
+    coverCropZoom.value = String(Math.max(1, Math.min(6, zoom)));
+    coverCropZoomLabel.textContent = `${zoom.toFixed(1)}×`;
   }
 
-  function layoutCoverCrop() {
-    if (!coverCropBitmap || !coverCropStage.clientWidth || !coverCropStage.clientHeight) return;
-    const coverRect = coverElement.getBoundingClientRect();
-    const ratio = coverCropTarget === 'avatar' ? 1 : coverRect.width / Math.max(1, coverRect.height);
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    const maxHeight = Math.min(coverCropStage.clientHeight, viewportHeight * 0.8);
-    const maxWidth = Math.max(1, coverCropStage.clientWidth - 24);
-    const frameHeight = Math.min(maxHeight, maxWidth / ratio);
-    const frameWidth = frameHeight * ratio;
+  // Đặt khung crop (kích thước cố định trong phiên) + tính lại s/tx/ty.
+  // reset=true: đặt lại về fit-center (mở ảnh mới / bấm Xoay).
+  function layoutCoverCrop(reset = false) {
+    if (!coverCropStage || !coverCropStage.clientWidth || !coverCropStage.clientHeight) return;
+    const stageWidth = coverCropStage.clientWidth;
+    const stageHeight = coverCropStage.clientHeight;
+    let frameWidth;
+    let frameHeight;
+    if (coverCropTarget === 'avatar') {
+      // Vòng tròn D = min(innerWidth - 48, 320) px, không vượt khung nhìn thấy
+      const d = Math.max(120, Math.min(window.innerWidth - 48, 320, stageWidth - 8, stageHeight - 8));
+      frameWidth = d;
+      frameHeight = d;
+    } else {
+      const coverRect = coverElement.getBoundingClientRect();
+      const ratio = coverRect.width / Math.max(1, coverRect.height);
+      const viewportHeight = window.visualViewport?.height || window.innerHeight;
+      const maxHeight = Math.min(stageHeight, viewportHeight * 0.8);
+      const maxWidth = Math.max(1, stageWidth - 24);
+      frameHeight = Math.min(maxHeight, maxWidth / ratio);
+      frameWidth = frameHeight * ratio;
+    }
+    const oldWidth = coverCropFrameSize.width;
+    const oldHeight = coverCropFrameSize.height;
+    const oldCenterX = oldWidth ? (-coverCropTx + oldWidth / 2) / coverCropScale : 0;
+    const oldCenterY = oldHeight ? (-coverCropTy + oldHeight / 2) / coverCropScale : 0;
     coverCropFrameSize = { width: frameWidth, height: frameHeight };
+    coverCropFramePos = {
+      x: Math.round((stageWidth - frameWidth) / 2),
+      y: Math.round((stageHeight - frameHeight) / 2)
+    };
     coverCropFrame.style.width = `${frameWidth}px`;
     coverCropFrame.style.height = `${frameHeight}px`;
-    const rotated = Math.abs(coverCropRotation % 180) === 90;
-    const sourceWidth = rotated ? coverCropBitmap.height : coverCropBitmap.width;
-    const sourceHeight = rotated ? coverCropBitmap.width : coverCropBitmap.height;
-    coverCropBaseScale = Math.max(frameWidth / sourceWidth, frameHeight / sourceHeight);
+    coverCropFrame.style.left = `${coverCropFramePos.x}px`;
+    coverCropFrame.style.top = `${coverCropFramePos.y}px`;
+    if (!coverCropBitmap) return;
+    // s tối thiểu = phủ kín khung; tối đa = 6×.
+    coverCropMinScale = Math.max(frameWidth / coverCropBitmap.width, frameHeight / coverCropBitmap.height);
+    coverCropMaxScale = coverCropMinScale * 6;
+    if (reset || !oldWidth || !oldHeight) {
+      coverCropScale = coverCropMinScale;
+      coverCropTx = (frameWidth - coverCropBitmap.width * coverCropScale) / 2;
+      coverCropTy = (frameHeight - coverCropBitmap.height * coverCropScale) / 2;
+    } else {
+      // Giữ vùng đang xem ở giữa khung sau khi resize/orientation.
+      coverCropScale = Math.max(coverCropMinScale, Math.min(coverCropMaxScale, coverCropScale));
+      coverCropTx = frameWidth / 2 - oldCenterX * coverCropScale;
+      coverCropTy = frameHeight / 2 - oldCenterY * coverCropScale;
+    }
     renderCoverCrop();
   }
 
@@ -962,22 +1000,26 @@
     try {
       if (!file) return;
       if (!coverCropOverlay || !coverCropStage || !coverCropImage || !coverCropFrame) {
-        throw new Error('Không tìm thấy màn hình cắt ảnh bìa.');
+        throw new Error('Không tìm thấy màn hình cắt ảnh.');
       }
       closeCoverCrop();
       coverCropTarget = target === 'avatar' ? 'avatar' : 'cover';
-      coverCropBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      coverCropObjectUrl = URL.createObjectURL(file);
-      coverCropImage.src = coverCropObjectUrl;
-      coverCropZoomValue = 1;
       coverCropRotation = 0;
-      coverCropOffsetX = 0;
-      coverCropOffsetY = 0;
+      coverCropBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      // Xem trước vẽ chính bmp lên canvas (cùng nguồn với xuất ảnh → không bao giờ lệch).
+      coverCropImage.width = coverCropBitmap.width;
+      coverCropImage.height = coverCropBitmap.height;
+      coverCropImage.getContext('2d').drawImage(coverCropBitmap, 0, 0);
+      coverCropFrame.classList.toggle('is-round', coverCropTarget === 'avatar');
       coverCropOverlay.classList.add('open');
       coverCropOverlay.setAttribute('aria-hidden', 'false');
       document.body.classList.add('cover-crop-open');
-      if (coverCropImage.decode) await coverCropImage.decode();
-      layoutCoverCrop();
+      // Đảm bảo nút trạng thái sạch khi mở lại (lần trước lưu xong thì overlay đóng khi còn disable).
+      if (coverCropDone) { coverCropDone.disabled = false; coverCropDone.textContent = 'Xong'; }
+      if (coverCropCancel) coverCropCancel.disabled = false;
+      if (coverCropRotate) coverCropRotate.disabled = false;
+      if (coverCropZoom) coverCropZoom.disabled = false;
+      layoutCoverCrop(true);
     } catch (error) {
       closeCoverCrop();
       console.error(error?.message || String(error));
@@ -993,11 +1035,16 @@
     document.body.classList.remove('cover-crop-open');
     coverCropPointers.clear();
     coverCropGesture = null;
-    if (coverCropImage) coverCropImage.removeAttribute('src');
-    if (coverCropObjectUrl) URL.revokeObjectURL(coverCropObjectUrl);
-    coverCropObjectUrl = null;
+    if (coverCropImage) { coverCropImage.width = 0; coverCropImage.height = 0; }
     if (coverCropBitmap) coverCropBitmap.close?.();
     coverCropBitmap = null;
+    coverCropFrameSize = { width: 0, height: 0 };
+    coverCropFramePos = { x: 0, y: 0 };
+    coverCropScale = 1;
+    coverCropMinScale = 1;
+    coverCropMaxScale = 1;
+    coverCropTx = 0;
+    coverCropTy = 0;
   }
 
   function coverCropPoint(event) {
@@ -1009,6 +1056,7 @@
     return Math.hypot(b.x - a.x, b.y - a.y);
   }
 
+  // Bắt đầu thao tác: neo theo điểm giữa hai ngón hoặc theo ngón đang kéo.
   function startCoverCropGesture() {
     const points = [...coverCropPointers.values()];
     if (points.length >= 2) {
@@ -1016,36 +1064,50 @@
         type: 'pinch',
         distance: Math.max(1, coverCropDistance(points[0], points[1])),
         midpoint: { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 },
-        zoom: coverCropZoomValue,
-        offsetX: coverCropOffsetX,
-        offsetY: coverCropOffsetY
+        scale: coverCropScale,
+        tx: coverCropTx,
+        ty: coverCropTy
       };
     } else if (points.length === 1) {
       coverCropGesture = {
-        type: 'drag', point: points[0], offsetX: coverCropOffsetX, offsetY: coverCropOffsetY
+        type: 'drag', point: points[0], tx: coverCropTx, ty: coverCropTy
       };
     } else coverCropGesture = null;
   }
 
+  // Zoom 2 ngón: giữ nguyên điểm dưới tâm tiếp xúc (tx' = cx - (cx - tx)*(s'/s)).
   function moveCoverCropPointer(event) {
     if (!coverCropPointers.has(event.pointerId)) return;
     coverCropPointers.set(event.pointerId, coverCropPoint(event));
     const points = [...coverCropPointers.values()];
     if (points.length >= 2 && coverCropGesture?.type === 'pinch') {
+      const gesture = coverCropGesture;
       const midpoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
       const distance = coverCropDistance(points[0], points[1]);
-      const zoom = Math.max(1, Math.min(4, coverCropGesture.zoom * distance / coverCropGesture.distance));
-      const centerX = coverCropStage.clientWidth / 2;
-      const centerY = coverCropStage.clientHeight / 2;
-      coverCropOffsetX = midpoint.x - centerX -
-        ((coverCropGesture.midpoint.x - centerX - coverCropGesture.offsetX) / coverCropGesture.zoom) * zoom;
-      coverCropOffsetY = midpoint.y - centerY -
-        ((coverCropGesture.midpoint.y - centerY - coverCropGesture.offsetY) / coverCropGesture.zoom) * zoom;
-      coverCropZoomValue = zoom;
+      const anchorX = gesture.midpoint.x - coverCropFramePos.x;
+      const anchorY = gesture.midpoint.y - coverCropFramePos.y;
+      const nextScale = Math.max(coverCropMinScale, Math.min(coverCropMaxScale,
+        gesture.scale * distance / gesture.distance));
+      const factor = nextScale / gesture.scale;
+      coverCropScale = nextScale;
+      coverCropTx = anchorX - (anchorX - gesture.tx) * factor + (midpoint.x - gesture.midpoint.x);
+      coverCropTy = anchorY - (anchorY - gesture.ty) * factor + (midpoint.y - gesture.midpoint.y);
     } else if (points.length === 1 && coverCropGesture?.type === 'drag') {
-      coverCropOffsetX = coverCropGesture.offsetX + points[0].x - coverCropGesture.point.x;
-      coverCropOffsetY = coverCropGesture.offsetY + points[0].y - coverCropGesture.point.y;
+      const gesture = coverCropGesture;
+      coverCropTx = gesture.tx + (points[0].x - gesture.point.x);
+      coverCropTy = gesture.ty + (points[0].y - gesture.point.y);
     }
+    renderCoverCrop();
+  }
+
+  // Zoom bằng thanh trượt: neo giữa khung (cx = khungW/2, cy = khungH/2).
+  function zoomCoverCropTo(nextScale, anchorX, anchorY) {
+    if (!coverCropBitmap || !coverCropScale) return;
+    const scale = Math.max(coverCropMinScale, Math.min(coverCropMaxScale, nextScale));
+    const factor = scale / coverCropScale;
+    coverCropScale = scale;
+    coverCropTx = anchorX - (anchorX - coverCropTx) * factor;
+    coverCropTy = anchorY - (anchorY - coverCropTy) * factor;
     renderCoverCrop();
   }
 
@@ -1054,25 +1116,23 @@
       throw new Error('Ảnh chưa sẵn sàng để cắt.');
     }
     const ratio = coverCropFrameSize.width / coverCropFrameSize.height;
-    const maxSide = coverCropTarget === 'avatar' ? 256 : 1280;
+    const maxSide = coverCropTarget === 'avatar' ? 512 : 1280;
     const canvas = document.createElement('canvas');
     canvas.width = ratio >= 1 ? maxSide : Math.max(1, Math.round(maxSide * ratio));
     canvas.height = ratio >= 1 ? Math.max(1, Math.round(maxSide / ratio)) : maxSide;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Không tạo được canvas.');
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    const outputScale = canvas.width / coverCropFrameSize.width;
-    context.translate(canvas.width / 2 + coverCropOffsetX * outputScale,
-      canvas.height / 2 + coverCropOffsetY * outputScale);
-    context.rotate(coverCropRotation * Math.PI / 180);
-    context.scale(coverCropBaseScale * coverCropZoomValue * outputScale,
-      coverCropBaseScale * coverCropZoomValue * outputScale);
-    context.drawImage(coverCropBitmap, -coverCropBitmap.width / 2, -coverCropBitmap.height / 2);
+    // Vùng cắt theo toạ độ ảnh gốc: sx = -tx/s, sy = -ty/s, sw = khungW/s.
+    const sx = -coverCropTx / coverCropScale;
+    const sy = -coverCropTy / coverCropScale;
+    const sw = coverCropFrameSize.width / coverCropScale;
+    const sh = coverCropFrameSize.height / coverCropScale;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(coverCropBitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     return new Promise((resolve, reject) => canvas.toBlob((blob) => {
       if (blob) resolve(blob);
       else reject(new Error('Canvas không tạo được ảnh JPEG.'));
-    }, 'image/jpeg', 0.85));
+    }, 'image/jpeg', coverCropTarget === 'avatar' ? 0.9 : 0.85));
   }
 
   async function finishCoverCrop() {
@@ -4024,11 +4084,27 @@
     });
   }
 
-  // Đổi ảnh hồ sơ: tải lên bucket, lưu profiles.avatar_path ngay (không cần bấm Lưu)
+  // Hiện ngay bằng đúng blob vừa cắt (ô hồ sơ 96px + header) trước khi upload xong
+  function setAvatarBlobPreview(url) {
+    if (userAvatar) {
+      userAvatar.textContent = '';
+      userAvatar.style.backgroundImage = `url("${url}")`;
+    }
+    if (profileOpen && profileWho === 'me' && profileAvatarEl) {
+      profileAvatarEl.textContent = '';
+      profileAvatarEl.style.backgroundImage = `url("${url}")`;
+    }
+  }
+
+  // Đổi ảnh hồ sơ: xem trước blob ngay, tải lên bucket, lưu profiles.avatar_path (không cần bấm Lưu)
   async function uploadAvatar(blob) {
     if (!currentUser || !blob) return false;
+    const prevPath = (currentProfile && currentProfile.avatar_path) || null;
+    if (avatarBlobUrl) { try { URL.revokeObjectURL(avatarBlobUrl); } catch {} avatarBlobUrl = null; }
+    avatarBlobUrl = URL.createObjectURL(blob);
+    setAvatarBlobPreview(avatarBlobUrl);
     try {
-      const path = `${currentUser.id}/avatars/${Date.now()}.jpg`;
+      const path = `${currentUser.id}/avatar-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage.from('chat-images').upload(path, blob, {
         contentType: 'image/jpeg'
       });
@@ -4037,6 +4113,8 @@
         .update({ avatar_path: path, profile_updated_at: new Date().toISOString() })
         .eq('id', currentUser.id);
       if (updateError) throw updateError;
+      // Xoá URL cache cũ (path mới → URL mới) để mọi nơi hiện ảnh mới ngay, không dính ảnh cũ trên iOS
+      if (prevPath) signedUrlCache.delete(prevPath);
       signedUrlCache.delete(path);
       currentProfile = { ...(currentProfile || { id: currentUser.id }), avatar_path: path };
       profilesMap.set(currentUser.id, { ...(profilesMap.get(currentUser.id) || {}), ...currentProfile });
@@ -4044,9 +4122,17 @@
       applyProfileIdentity();
       refreshSenderNames();
       renderProfileHero();
+      const blobUrl = avatarBlobUrl;
+      setTimeout(() => {
+        if (avatarBlobUrl === blobUrl) { try { URL.revokeObjectURL(blobUrl); } catch {} avatarBlobUrl = null; }
+      }, 15000);
       showAppToast('Đã đổi ảnh hồ sơ 💕');
       return true;
     } catch (error) {
+      // Trả lại avatar cũ nếu upload thất bại
+      if (avatarBlobUrl) { try { URL.revokeObjectURL(avatarBlobUrl); } catch {} avatarBlobUrl = null; }
+      applyProfileIdentity();
+      renderProfileHero();
       console.error('uploadAvatar error:', error);
       showCoverToast('Đổi ảnh hồ sơ thất bại: ' + (error?.message || String(error)));
       return false;
@@ -4621,13 +4707,29 @@
   if (coverCropCancel) coverCropCancel.onclick = closeCoverCrop;
   if (coverCropRotate) coverCropRotate.onclick = () => {
     if (!coverCropBitmap) return;
+    // Xoay nguồn ảnh (không xoay transform) → mô hình crop giữ nguyên (s, tx, ty).
+    const source = coverCropBitmap;
+    const rotated = document.createElement('canvas');
+    rotated.width = source.height;
+    rotated.height = source.width;
+    const context = rotated.getContext('2d');
+    if (!context) return;
+    context.translate(rotated.width / 2, rotated.height / 2);
+    context.rotate(Math.PI / 2);
+    context.drawImage(source, -source.width / 2, -source.height / 2);
+    if (source.close) source.close();
+    coverCropBitmap = rotated;
     coverCropRotation = (coverCropRotation + 90) % 360;
-    layoutCoverCrop();
+    coverCropImage.width = rotated.width;
+    coverCropImage.height = rotated.height;
+    coverCropImage.getContext('2d').drawImage(rotated, 0, 0);
+    layoutCoverCrop(true);
   };
   if (coverCropDone) coverCropDone.onclick = finishCoverCrop;
   if (coverCropZoom) coverCropZoom.addEventListener('input', () => {
-    coverCropZoomValue = Math.max(1, Math.min(4, Number(coverCropZoom.value) || 1));
-    renderCoverCrop();
+    if (!coverCropBitmap) return;
+    const zoom = Math.max(1, Math.min(6, Number(coverCropZoom.value) || 1));
+    zoomCoverCropTo(coverCropMinScale * zoom, coverCropFrameSize.width / 2, coverCropFrameSize.height / 2);
   });
   if (coverCropStage) {
     coverCropStage.addEventListener('pointerdown', (event) => {
