@@ -3298,10 +3298,11 @@
       btn.type = 'button';
       btn.className = 'search-row';
       const av = document.createElement('span');
-      av.className = 'search-avatar';
+      av.className = 'search-avatar avatar-circle';
       av.setAttribute('aria-hidden', 'true');
       const nm = senderName(m);
       av.textContent = nm.substring(0, 2).toUpperCase();
+      renderAvatar(av, profilesMap.get(m.user_id) || { id: m.user_id, name: nm });
       const body = document.createElement('span');
       body.className = 'search-row-body';
       const head = document.createElement('span');
@@ -3669,29 +3670,34 @@
     el.style.backgroundImage = '';
   }
 
-  function renderAvatarInto(el, profile) {
+  // Hàm DUY NHẤT vẽ avatar cho mọi nơi (header, hồ sơ, kết quả tìm kiếm...):
+  // luôn lấy avatar_path hiện tại trong profilesMap, CSS chung .avatar-circle (cover, không transform).
+  function renderAvatar(el, profile, size) {
     if (!el) return;
-    const path = profile && profile.avatar_path;
-    if (!path) { setAvatarFallback(el, profile && profile.name); return; }
+    const id = profile && profile.id;
+    const p = (id && profilesMap.get(id)) || profile || null;
+    if (size) { el.style.width = `${size}px`; el.style.height = `${size}px`; }
+    const path = p && p.avatar_path;
+    if (!path) { setAvatarFallback(el, p && p.name); return; }
     const cached = signedUrlCache.get(path);
-    if (cached) {
-      el.dataset.path = path;
-      el.textContent = '';
-      el.style.backgroundImage = `url("${cached}")`;
-      return;
-    }
-    setAvatarFallback(el, profile && profile.name);
+    if (cached) { paintAvatar(el, path, cached); return; }
+    setAvatarFallback(el, p && p.name);
     el.dataset.path = path;
     getSignedUrl(path).then((url) => {
       if (!url || el.dataset.path !== path) return;
-      el.textContent = '';
-      el.style.backgroundImage = `url("${url}")`;
+      paintAvatar(el, path, url);
     });
+  }
+
+  function paintAvatar(el, path, url) {
+    el.dataset.path = path;
+    el.textContent = '';
+    el.style.backgroundImage = `url("${url}")`;
   }
 
   function applyProfileIdentity() {
     const p = currentProfile;
-    if (userAvatar) renderAvatarInto(userAvatar, p);
+    if (userAvatar) renderAvatar(userAvatar, p);
     if (chatTitle) chatTitle.textContent = typeof festiveOn !== 'undefined' && festiveOn
       ? '🌸 DiNhiChat 🌸'
       : (p && p.name) || 'DiNhiChat';
@@ -3851,7 +3857,7 @@
     if (profileAvatarBtn) profileAvatarBtn.disabled = !isMe;
     if (profileAvatarHint) profileAvatarHint.hidden = !isMe;
     profileNameEl.textContent = (p && p.name) || (isMe ? 'Bạn' : 'Iu dấu');
-    renderAvatarInto(profileAvatarEl, p);
+    renderAvatar(profileAvatarEl, p, 96);
     const bits = [];
     const info = birthdayInfo(p && p.birthday);
     if (p && p.birthday && formatNgaySinh(p.birthday)) bits.push('🎂 ' + formatNgaySinh(p.birthday));
@@ -4122,10 +4128,20 @@
       applyProfileIdentity();
       refreshSenderNames();
       renderProfileHero();
+      // Thu hồi blob URL sau khi signed URL mới đã vẽ xong lên avatar (chuyển hẳn sang ảnh server)
       const blobUrl = avatarBlobUrl;
-      setTimeout(() => {
-        if (avatarBlobUrl === blobUrl) { try { URL.revokeObjectURL(blobUrl); } catch {} avatarBlobUrl = null; }
-      }, 15000);
+      const revokeBlobWhenPainted = (tries) => {
+        if (avatarBlobUrl !== blobUrl) return;
+        const painted = (userAvatar && userAvatar.dataset.path === path)
+          || (profileAvatarEl && profileAvatarEl.dataset.path === path);
+        if (painted || tries <= 0) {
+          try { URL.revokeObjectURL(blobUrl); } catch {}
+          avatarBlobUrl = null;
+          return;
+        }
+        setTimeout(() => revokeBlobWhenPainted(tries - 1), 1500);
+      };
+      setTimeout(() => revokeBlobWhenPainted(8), 300);
       showAppToast('Đã đổi ảnh hồ sơ 💕');
       return true;
     } catch (error) {
@@ -4149,7 +4165,12 @@
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
         const row = payload && payload.new;
         if (!row || !row.id) return;
-        profilesMap.set(row.id, { ...(profilesMap.get(row.id) || {}), ...row });
+        // avatar_path đổi → xóa URL cache cũ, render lại theo path mới
+        const oldRow = profilesMap.get(row.id);
+        if (typeof row.avatar_path !== 'undefined' && oldRow && oldRow.avatar_path && oldRow.avatar_path !== row.avatar_path) {
+          signedUrlCache.delete(oldRow.avatar_path);
+        }
+        profilesMap.set(row.id, { ...(oldRow || {}), ...row });
         try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
         if (currentUser && row.id === currentUser.id) {
           currentProfile = { ...(currentProfile || {}), ...row };

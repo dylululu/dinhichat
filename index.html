@@ -175,12 +175,33 @@
       position: relative;
     }
 
+    /* Avatar dùng chung mọi nơi: tròn, cover, không transform/scale */
+    .avatar-circle {
+      border-radius: 50%;
+      overflow: hidden;
+      aspect-ratio: 1;
+      box-sizing: border-box;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      flex-shrink: 0;
+      image-rendering: auto;
+    }
+    .avatar-circle img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+    /* specificity gấp đôi: chặn mọi rule `background:` shorthand phía sau reset về auto */
+    .avatar-circle.avatar-circle { background-size: cover; background-position: center; background-repeat: no-repeat; }
+
     .header-avatar {
       width: 36px;
       height: 36px;
       aspect-ratio: 1;
       border-radius: 50%;
-      background: var(--primary-color);
+      background-color: var(--primary-color);
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
@@ -1686,7 +1707,7 @@
       height: 28px;
       flex: 0 0 28px;
       border-radius: 50%;
-      background: var(--primary-color);
+      background-color: var(--primary-color);
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
@@ -1839,14 +1860,15 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      background: #ffd6e5;
+      background-color: #ffd6e5;
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
       color: #b0526f;
       font-size: 30px;
       font-weight: 700;
-      border: 3px solid #ffd6e5;
+      /* viền khuyên ngoài, KHÔNG dùng border (border thu nhỏ vùng nền → ảnh bị phóng to sai vùng) */
+      box-shadow: 0 0 0 3px #ffd6e5;
     }
     .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .profile-avatar-hint { font-size: 12px; color: #a08a94; }
@@ -1932,7 +1954,7 @@
       .profile-save, .profile-save:active { background: #ff6f9c; color: #fff; }
       .profile-tab { background: #3a1d2a; border-color: #5a2d40; color: #ffb3cd; }
       .profile-tab.active { background: #ff6f9c; border-color: #ff6f9c; color: #fff; }
-      .profile-avatar { background: #4a2436; color: #ffb3cd; border-color: #5a2d40; }
+      .profile-avatar { background-color: #4a2436; color: #ffb3cd; box-shadow: 0 0 0 3px #5a2d40; }
       .profile-avatar-hint { color: #b7a3ac; }
       .profile-group { background: #2c1620; border-color: #5a2d40; }
       .profile-group-title { color: #ffb3cd; }
@@ -2402,7 +2424,7 @@
   <div id="app" class="screen">
     <header class="chat-header">
       <div class="header-user-info">
-        <div class="header-avatar" id="current-user-avatar">DN</div>
+        <div class="header-avatar avatar-circle" id="current-user-avatar">DN</div>
         <div class="header-title-wrap">
           <h1 id="chat-title">DiNhiChat</h1>
           <div class="header-status" id="user-status">Trực tuyến</div>
@@ -2533,7 +2555,7 @@
       <div class="profile-scroll" id="profile-scroll">
         <div class="profile-hero">
           <button id="profile-avatar-btn" class="profile-avatar-btn" type="button">
-            <span id="profile-avatar" class="profile-avatar">DN</span>
+            <span id="profile-avatar" class="profile-avatar avatar-circle">DN</span>
             <span id="profile-avatar-hint" class="profile-avatar-hint">Chạm để đổi ảnh</span>
           </button>
           <div id="profile-name" class="profile-name">—</div>
