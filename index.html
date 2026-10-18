@@ -221,8 +221,12 @@
 
     .header-status {
       font-size: 12px;
-      color: #34c759;
+      color: #999;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
+    .header-status.online { color: #34c759; }
 
     .header-actions {
       position: relative;
@@ -643,12 +647,19 @@
 
     .message-row {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
+      align-items: flex-end;
+      gap: 6px;
       max-width: 78%;
       position: relative;
       touch-action: pan-y;
       will-change: transform;
     }
+    /* Cột nội dung (bong bóng + giờ) bên trong hàng; avatar 28px nằm cạnh, căn đáy */
+    .msg-col { display: flex; flex-direction: column; min-width: 0; }
+    .message-row.self .msg-col { align-items: flex-end; }
+    .message-row.other .msg-col { align-items: flex-start; }
+    .msg-avatar { width: 28px; height: 28px; flex: 0 0 28px; align-self: flex-end; margin-bottom: 4px; }
 
     .message-row.animate-outgoing { animation: message-outgoing 320ms cubic-bezier(.2,.9,.3,1.2) both; transform-origin: bottom right; }
     .message-row.animate-incoming { animation: message-incoming 260ms ease-out both; transform-origin: center left; }

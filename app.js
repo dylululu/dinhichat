@@ -806,6 +806,9 @@
   let coverCropTarget = 'cover';              // 'cover' (tỉ lệ khung, ≤1280px) | 'avatar' (vòng tròn D, xuất vuông 512px)
   let typingTimer = null;
   let lastTypingSent = 0;
+  let peerPingTimer = null;      // gửi "ping" 60s để người kia biết mình còn hoạt động
+  let peerStatusTicker = null;   // làm mới dòng trạng thái ở header 30s
+  let peerLastActive = 0;        // ms epoch lần cuối thấy người kia hoạt động (có ping/tin/nhập)
   const messageIds = new Set();
   const signedUrlCache = new Map();
   let avatarBlobUrl = null; // blob URL ảnh hồ sơ vừa cắt (hiện ngay khi bấm Xong, trước khi upload xong)
@@ -1240,6 +1243,7 @@
       data.forEach((p) => profilesMap.set(p.id, p));
       lsSet(CACHE_PROFILES_KEY, data);
       updatePeerPushNotice(data);
+      renderHeaderPeer(); // có dữ liệu người kia → hiện tên/avatar ở header
     }
   }
 
@@ -2164,7 +2168,7 @@
         retryButton.className = 'retry-send';
         retryButton.textContent = 'Thử lại';
         retryButton.addEventListener('click', send);
-        row.appendChild(retryButton);
+        (row.querySelector(':scope > .msg-col') || row).appendChild(retryButton);
         if (options.restoreText && !messageInput.value.trim()) {
           messageInput.value = options.restoreText;
           restoredAfterFailure = true;
@@ -2369,7 +2373,8 @@
     } else {
       seenEl.textContent = 'Đã gửi';
     }
-    lastSelfRow.appendChild(seenEl);
+    const seenCol = lastSelfRow.querySelector(':scope > .msg-col') || lastSelfRow;
+    seenCol.appendChild(seenEl);
   }
 
   function updateMsgReadAt(updatedMsg) {
@@ -2398,6 +2403,7 @@
       .on('broadcast', { event: 'typing' }, (payload) => {
         const senderId = payload.payload?.user_id;
         if (currentUser && senderId && senderId !== currentUser.id) {
+          notePeerActive();
           showTyping(senderId);
         }
       })
@@ -2407,11 +2413,64 @@
           hideTyping();
         }
       })
+      .on('broadcast', { event: 'ping' }, (payload) => {
+        const senderId = payload.payload?.user_id;
+        if (currentUser && senderId && senderId !== currentUser.id) {
+          notePeerActive(payload.payload?.ts);
+        }
+      })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           setTimeout(subscribeTyping, 1500);
         }
       });
+    // Trạng thái người kia ở header: ping 60s + đếm lại mỗi 30s
+    loadPeerActive();
+    clearInterval(peerPingTimer);
+    peerPingTimer = setInterval(sendPeerPing, 60000);
+    clearInterval(peerStatusTicker);
+    peerStatusTicker = setInterval(() => {
+      if (document.visibilityState === 'visible') renderPeerStatus();
+    }, 30000);
+    sendPeerPing();
+    renderPeerStatus();
+  }
+
+  // ─── Trạng thái người kia ở header (Trực tuyến / Hoạt động X phút trước) ─────
+  const PEER_ACTIVE_KEY = 'dinhichat_peer_active_v1';
+
+  function loadPeerActive() {
+    try { peerLastActive = Number(localStorage.getItem(PEER_ACTIVE_KEY)) || 0; } catch { peerLastActive = 0; }
+  }
+
+  function notePeerActive(ts) {
+    const t = Number(ts) || Date.now();
+    if (t > peerLastActive) {
+      peerLastActive = t;
+      try { localStorage.setItem(PEER_ACTIVE_KEY, String(t)); } catch {}
+    }
+    renderPeerStatus();
+  }
+
+  function renderPeerStatus() {
+    if (!userStatusEl) return;
+    const mins = peerLastActive ? Math.max(0, Math.floor((Date.now() - peerLastActive) / 60000)) : -1;
+    let text;
+    if (mins >= 0 && mins < 3) text = 'Trực tuyến';
+    else if (mins >= 60) text = `Hoạt động ${Math.floor(mins / 60)} giờ trước`;
+    else if (mins >= 3) text = `Hoạt động ${mins} phút trước`;
+    else text = 'Chưa hoạt động';
+    userStatusEl.textContent = text;
+    userStatusEl.classList.toggle('online', text === 'Trực tuyến');
+  }
+
+  function sendPeerPing() {
+    if (!currentUser || document.visibilityState !== 'visible' || !typingChannel) return;
+    typingChannel.send({
+      type: 'broadcast',
+      event: 'ping',
+      payload: { user_id: currentUser.id, ts: Date.now() }
+    });
   }
 
   function showTyping(senderId) {
@@ -2462,6 +2521,31 @@
       event: 'stop',
       payload: { user_id: currentUser.id }
     });
+  }
+
+  // ─── Avatar nhỏ cạnh tin + gộp nhóm 2 phút ─────────────────────────────────
+  const MSG_GROUP_MS = 2 * 60 * 1000;
+
+  function msgRowData(row) {
+    try { return JSON.parse(row.dataset.msg || '{}'); } catch { return {}; }
+  }
+
+  // Avatar chỉ hiện ở tin CUỐI của nhóm (cùng người, cách nhau ≤2 phút);
+  // các tin còn lại giữ chỗ 28px bằng visibility:hidden để bong bóng thẳng hàng.
+  function refreshMsgAvatar(row) {
+    if (!row || !row.classList || !row.classList.contains('message-row')) return;
+    const slot = row.querySelector(':scope > .msg-avatar');
+    if (!slot) return;
+    const next = row.nextElementSibling;
+    let show = true;
+    if (next && next.classList && next.classList.contains('message-row') && !next.dataset.temp) {
+      const a = msgRowData(row);
+      const b = msgRowData(next);
+      const ta = Date.parse(a.created_at || '') || 0;
+      const tb = Date.parse(b.created_at || '') || 0;
+      if (a.sender_id && a.sender_id === b.sender_id && ta && tb && Math.abs(tb - ta) <= MSG_GROUP_MS) show = false;
+    }
+    slot.style.visibility = show ? '' : 'hidden';
   }
 
   // ─── Render one message (addMsg) ─────────────────────────────────────────────
@@ -2602,8 +2686,23 @@
     time.textContent = formatTime(message.created_at) + remindIcon;
     row.appendChild(time);
 
+    // Avatar nhỏ 28px cạnh bong bóng (cả tin mình và người kia); gộp nhóm 2 phút: chỉ tin CUỐI hiện avatar
+    const msgCol = document.createElement('div');
+    msgCol.className = 'msg-col';
+    while (row.firstChild) msgCol.appendChild(row.firstChild);
+    row.appendChild(msgCol);
+    const avatarSlot = document.createElement('span');
+    avatarSlot.className = 'msg-avatar avatar-circle';
+    avatarSlot.setAttribute('aria-hidden', 'true');
+    renderAvatar(avatarSlot,
+      (message.sender_id && profilesMap.get(message.sender_id)) || { id: message.sender_id, name: senderName(message) }, 28);
+    if (isSelf) row.appendChild(avatarSlot);
+    else row.insertBefore(avatarSlot, msgCol);
+
     if (options.sorted && message.created_at) insertMsgSorted(row, message.created_at);
     else messagesContainer.appendChild(row);
+    refreshMsgAvatar(row);
+    refreshMsgAvatar(row.previousElementSibling);
     enableSwipeReply(row, message);
     setupRowGesture(row, message);
     if (canReact) renderReactionBadges(row);
@@ -3018,6 +3117,7 @@
         { event: 'INSERT', schema: 'public', table: 'messages' },
         async (payload) => {
           if (payload.new) {
+            if (currentUser && payload.new.sender_id && payload.new.sender_id !== currentUser.id) notePeerActive();
             await handleIncomingMessage(payload.new);
           }
         }
@@ -3390,6 +3490,8 @@
     }
     if (before) list.insertBefore(row, before);
     else list.appendChild(row);
+    refreshMsgAvatar(row);
+    refreshMsgAvatar(row.previousElementSibling);
     if (before && before.offsetTop <= prevTop) {
       list.scrollTop = prevTop + (list.scrollHeight - prevH);
     }
@@ -3586,6 +3688,7 @@
   const profileViewEl = document.getElementById('profile-view');
   const profileAvatarFile = document.getElementById('profile-avatar-file');
   const headerUserInfo = document.querySelector('.header-user-info');
+  const userStatusEl = document.getElementById('user-status');
   const btnProfile = document.getElementById('btn-profile');
 
   // Nhóm ô nhập theo thẻ (hồ sơ của mình)
@@ -3695,12 +3798,18 @@
     el.style.backgroundImage = `url("${url}")`;
   }
 
+  // Header hiển thị NGƯỜI KIA (avatar + biệt danh + trạng thái); hồ sơ mình qua tab "Của tôi"/panel ➕
   function applyProfileIdentity() {
-    const p = currentProfile;
-    if (userAvatar) renderAvatar(userAvatar, p);
+    renderHeaderPeer();
+  }
+
+  function renderHeaderPeer() {
+    const peer = getPeerProfile();
+    if (userAvatar) renderAvatar(userAvatar, peer);
     if (chatTitle) chatTitle.textContent = typeof festiveOn !== 'undefined' && festiveOn
       ? '🌸 DiNhiChat 🌸'
-      : (p && p.name) || 'DiNhiChat';
+      : (peer && peer.name) || 'Iu dấu';
+    renderPeerStatus();
   }
 
   function getPeerProfile() {
@@ -4179,9 +4288,12 @@
             populateProfileForm();
             profileFormReady = true;
           }
-        } else if (profileOpen && profileWho === 'peer') {
-          renderProfileView();
-          renderProfileHero();
+        } else {
+          renderHeaderPeer(); // người kia đổi biệt danh/avatar → header cập nhật ngay
+          if (profileOpen && profileWho === 'peer') {
+            renderProfileView();
+            renderProfileHero();
+          }
         }
       })
       .subscribe((status) => {
@@ -4205,9 +4317,9 @@
     profileAvatarFile.value = '';
     if (file) openCoverCrop(file, 'avatar');
   });
-  // Bấm avatar/tên ở header = hồ sơ của mình
+  // Bấm avatar/tên ở header = hồ sơ NGƯỜI KIA (tab của họ); hồ sơ mình qua tab "Của tôi" / mục ➕
   if (headerUserInfo) headerUserInfo.style.cursor = 'pointer';
-  headerUserInfo?.addEventListener('click', () => openProfile('me'));
+  headerUserInfo?.addEventListener('click', () => openProfile('peer'));
   // Bấm tên người kia trên tin (sticker) = hồ sơ người kia
   messagesContainer?.addEventListener('click', (event) => {
     if (event.target?.closest?.('.sticker-sender')) openProfile('peer');
@@ -4637,8 +4749,6 @@
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       if (profile) {
         currentProfile = profile;
-        userAvatar.textContent = (profile.name || 'DN').substring(0, 2).toUpperCase();
-        chatTitle.textContent = profile.name || 'DiNhiChat';
       }
 
       await loadProfiles();
