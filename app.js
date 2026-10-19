@@ -1237,13 +1237,15 @@
     if (cached && Array.isArray(cached)) {
       cached.forEach((p) => profilesMap.set(p.id, p));
     }
+    // PHẢI có avatar_path: thiếu cột này → profilesMap không có avatar_path → mọi avatar chỉ hiện chữ cái
     const { data, error } = await supabase.from('profiles')
-      .select('id, name, push_subscription, last_push_status, last_push_at');
+      .select('id, name, avatar_path, push_subscription, last_push_status, last_push_at');
     if (!error && data) {
-      data.forEach((p) => profilesMap.set(p.id, p));
+      data.forEach((p) => profilesMap.set(p.id, { ...(profilesMap.get(p.id) || {}), ...p }));
       lsSet(CACHE_PROFILES_KEY, data);
       updatePeerPushNotice(data);
       renderHeaderPeer(); // có dữ liệu người kia → hiện tên/avatar ở header
+      refreshAvatars();   // vẽ lại mọi ô avatar [data-uid] đang chờ
     }
   }
 
@@ -1264,7 +1266,7 @@
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, name, push_subscription, last_push_status, last_push_at')
+        .select('id, name, avatar_path, push_subscription, last_push_status, last_push_at')
         .neq('id', currentUser.id)
         .limit(1);
       if (error || !data || !data.length) return;
@@ -2534,7 +2536,7 @@
   // các tin còn lại giữ chỗ 28px bằng visibility:hidden để bong bóng thẳng hàng.
   function refreshMsgAvatar(row) {
     if (!row || !row.classList || !row.classList.contains('message-row')) return;
-    const slot = row.querySelector(':scope > .msg-avatar');
+    const slot = row.querySelector('.msg-avatar');
     if (!slot) return;
     const next = row.nextElementSibling;
     let show = true;
@@ -2686,18 +2688,36 @@
     time.textContent = formatTime(message.created_at) + remindIcon;
     row.appendChild(time);
 
-    // Avatar nhỏ 28px cạnh bong bóng (cả tin mình và người kia); gộp nhóm 2 phút: chỉ tin CUỐI hiện avatar
+    // Cấu trúc hàng tin: .message-row > .msg-col > [tên sticker] + .msg-bubble-row [avatar28 + bong bóng] + giờ/đã xem
+    const colTop = [];    // phía trên bong bóng (quote sticker, tên sticker)
+    const middle = [];    // vào .msg-content (bong bóng / ảnh / sticker / caption)
+    const colBottom = []; // giờ
+    while (row.firstChild) {
+      const el = row.removeChild(row.firstChild);
+      if (!el.classList) continue;
+      if (el.classList.contains('message-time')) colBottom.push(el);
+      else if (el.classList.contains('sticker-sender') || el.classList.contains('reply-quote')) colTop.push(el);
+      else middle.push(el);
+    }
     const msgCol = document.createElement('div');
     msgCol.className = 'msg-col';
-    while (row.firstChild) msgCol.appendChild(row.firstChild);
-    row.appendChild(msgCol);
+    colTop.forEach((el) => msgCol.appendChild(el));
+    const bubbleRow = document.createElement('div');
+    bubbleRow.className = 'msg-bubble-row';
+    const contentWrap = document.createElement('div');
+    contentWrap.className = 'msg-content';
+    middle.forEach((el) => contentWrap.appendChild(el));
     const avatarSlot = document.createElement('span');
     avatarSlot.className = 'msg-avatar avatar-circle';
     avatarSlot.setAttribute('aria-hidden', 'true');
     renderAvatar(avatarSlot,
       (message.sender_id && profilesMap.get(message.sender_id)) || { id: message.sender_id, name: senderName(message) }, 28);
-    if (isSelf) row.appendChild(avatarSlot);
-    else row.insertBefore(avatarSlot, msgCol);
+    // avatar cùng hàng với bong bóng, căn đáy bong bóng: người kia bên trái, mình bên phải
+    if (isSelf) { bubbleRow.appendChild(contentWrap); bubbleRow.appendChild(avatarSlot); }
+    else { bubbleRow.appendChild(avatarSlot); bubbleRow.appendChild(contentWrap); }
+    msgCol.appendChild(bubbleRow);
+    colBottom.forEach((el) => msgCol.appendChild(el));
+    row.appendChild(msgCol);
 
     if (options.sorted && message.created_at) insertMsgSorted(row, message.created_at);
     else messagesContainer.appendChild(row);
@@ -3769,33 +3789,63 @@
 
   function setAvatarFallback(el, name) {
     delete el.dataset.path;
-    el.textContent = (name || 'DN').substring(0, 2).toUpperCase();
+    el.textContent = String(name || 'DN').substring(0, 2).toUpperCase() || '·';
     el.style.backgroundImage = '';
   }
 
-  // Hàm DUY NHẤT vẽ avatar cho mọi nơi (header, hồ sơ, kết quả tìm kiếm...):
-  // luôn lấy avatar_path hiện tại trong profilesMap, CSS chung .avatar-circle (cover, không transform).
+  // Hàm DUY NHẤT vẽ avatar cho mọi nơi (header, hồ sơ 96px, kết quả tìm kiếm, ô tin nhắn...):
+  // kích thước cứng inline (nếu có size), hiện NGAY chữ cái đầu làm fallback,
+  // Signed URL (có cache) vẽ nền sau; lỗi tải thì giữ chữ cái, không để ô trống.
   function renderAvatar(el, profile, size) {
     if (!el) return;
     const id = profile && profile.id;
-    const p = (id && profilesMap.get(id)) || profile || null;
-    if (size) { el.style.width = `${size}px`; el.style.height = `${size}px`; }
-    const path = p && p.avatar_path;
-    if (!path) { setAvatarFallback(el, p && p.name); return; }
-    const cached = signedUrlCache.get(path);
-    if (cached) { paintAvatar(el, path, cached); return; }
-    setAvatarFallback(el, p && p.name);
+    if (size) {
+      const px = `${size}px`;
+      el.style.width = px;
+      el.style.height = px;
+      el.style.minWidth = px;
+      el.style.minHeight = px;
+      el.style.flex = `0 0 ${px}`;
+    }
+    el.style.flexShrink = '0';
+    el.style.borderRadius = '50%';
+    el.style.overflow = 'hidden';
+    el.style.display = 'inline-flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundRepeat = 'no-repeat';
+    el.style.fontWeight = '700';
+    el.style.backgroundColor = '#f8bbd0';
+    el.style.color = '#e91e63';
+    if (!id) { el.dataset.uid = ''; setAvatarFallback(el, '·'); return; }
+    el.dataset.uid = String(id);
+    const p = profilesMap.get(id) || profile;
+    if (!p || !p.avatar_path) { setAvatarFallback(el, (p && p.name) || '·'); return; }
+    const path = p.avatar_path;
+    if (el.dataset.path === path && el.style.backgroundImage) return; // đã vẽ đúng ảnh này
+    setAvatarFallback(el, p.name); // chữ cái hiện NGAY, Signed URL thay sau
     el.dataset.path = path;
     getSignedUrl(path).then((url) => {
-      if (!url || el.dataset.path !== path) return;
-      paintAvatar(el, path, url);
+      if (!url) return; // lỗi tải → giữ chữ cái đầu
+      if (!el.isConnected || el.dataset.uid !== String(id) || el.dataset.path !== path) return;
+      el.textContent = '';
+      el.style.backgroundImage = `url("${url}")`;
     });
   }
 
-  function paintAvatar(el, path, url) {
-    el.dataset.path = path;
-    el.textContent = '';
-    el.style.backgroundImage = `url("${url}")`;
+  // Vẽ lại toàn bộ avatar [data-uid] theo profilesMap hiện tại
+  // (gọi sau loadProfiles, realtime profiles UPDATE và khi đổi avatar).
+  function refreshAvatars() {
+    document.querySelectorAll('[data-uid]').forEach((el) => {
+      const uid = el.dataset.uid;
+      if (!uid) return;
+      const p = profilesMap.get(uid);
+      if (!p) return;
+      delete el.dataset.path; // buộc vẽ lại theo path hiện tại
+      renderAvatar(el, p);
+    });
   }
 
   // Header hiển thị NGƯỜI KIA (avatar + biệt danh + trạng thái); hồ sơ mình qua tab "Của tôi"/panel ➕
@@ -4235,6 +4285,7 @@
       profilesMap.set(currentUser.id, { ...(profilesMap.get(currentUser.id) || {}), ...currentProfile });
       try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
       applyProfileIdentity();
+      refreshAvatars(); // đổi avatar xong → vẽ lại mọi ô (header, hồ sơ, tin nhắn, tìm kiếm)
       refreshSenderNames();
       renderProfileHero();
       // Thu hồi blob URL sau khi signed URL mới đã vẽ xong lên avatar (chuyển hẳn sang ảnh server)
@@ -4281,6 +4332,7 @@
         }
         profilesMap.set(row.id, { ...(oldRow || {}), ...row });
         try { lsSet(CACHE_PROFILES_KEY, [...profilesMap.values()]); } catch {}
+        refreshAvatars(); // realtime UPDATE → vẽ lại mọi ô avatar theo path hiện tại
         if (currentUser && row.id === currentUser.id) {
           currentProfile = { ...(currentProfile || {}), ...row };
           applyProfileIdentity();

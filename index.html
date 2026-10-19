@@ -530,7 +530,6 @@
     }
     .header-user-info, .header-actions { min-width: 0; flex-shrink: 0; gap: 8px; }
     .header-user-info { flex: 1; }
-    .header-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
     .header-title-wrap { min-width: 0; overflow: hidden; }
     .header-title-wrap h1 { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .header-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -610,6 +609,7 @@
     @media (max-width: 360px) {
       .chat-header { gap: 6px; padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
       .header-user-info, .header-actions { gap: 6px; }
+      .header-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
       .btn-notify, .btn-cover, .btn-logout { width: 36px; min-width: 40px; padding: 8px 10px; font-size: 0; justify-content: center; }
       .btn-notify::before { content: '🔔'; font-size: 16px; }
       .btn-cover::before { content: '🖼️'; font-size: 16px; }
@@ -617,6 +617,11 @@
       .message-row { max-width: 82%; }
       .chat-input-bar { gap: 6px; }
       .remind-select { max-width: 92px; }
+    }
+    /* Màn 375px: nút "Bật thông báo" (có chữ, ~122px) bóp hết chỗ tên ở header → gọn thành icon */
+    @media (max-width: 400px) {
+      #btn-enable-notify { width: 36px; min-width: 40px; padding: 8px 10px; font-size: 0; justify-content: center; }
+      #btn-enable-notify::before { content: '🔔'; font-size: 16px; }
     }
     @media (orientation: landscape) and (max-height: 500px) {
       .chat-header { padding-top: calc(env(safe-area-inset-top) + 4px); padding-bottom: 4px; }
@@ -647,19 +652,21 @@
 
     .message-row {
       display: flex;
-      flex-direction: row;
-      align-items: flex-end;
-      gap: 6px;
+      flex-direction: column;
       max-width: 78%;
       position: relative;
       touch-action: pan-y;
       will-change: transform;
     }
-    /* Cột nội dung (bong bóng + giờ) bên trong hàng; avatar 28px nằm cạnh, căn đáy */
-    .msg-col { display: flex; flex-direction: column; min-width: 0; }
+    /* Cột nội dung: [tên sticker] + hàng bong bóng (avatar + bong bóng) + giờ/đã xem */
+    .msg-col { display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
     .message-row.self .msg-col { align-items: flex-end; }
     .message-row.other .msg-col { align-items: flex-start; }
-    .msg-avatar { width: 28px; height: 28px; flex: 0 0 28px; align-self: flex-end; margin-bottom: 4px; }
+    /* Avatar 28px cùng hàng với bong bóng, căn thẳng ĐÁY bong bóng (không phải đáy cả cột) */
+    .msg-bubble-row { display: flex; align-items: flex-end; gap: 6px; min-width: 0; max-width: 100%; }
+    .msg-content { display: flex; flex-direction: column; min-width: 0; align-items: flex-start; max-width: calc(100% - 34px); }
+    .message-row.self .msg-content { align-items: flex-end; }
+    .msg-avatar { width: 28px; height: 28px; flex: 0 0 28px; }
 
     .message-row.animate-outgoing { animation: message-outgoing 320ms cubic-bezier(.2,.9,.3,1.2) both; transform-origin: bottom right; }
     .message-row.animate-incoming { animation: message-incoming 260ms ease-out both; transform-origin: center left; }
