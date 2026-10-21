@@ -2388,12 +2388,146 @@
       font-weight: 600;
       cursor: pointer;
     }
+    .festive-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .festive-title-row .festive-title { margin-bottom: 0; }
+    .festive-edit-btn {
+      margin-left: auto;
+      min-width: 44px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: #fce4ec;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    /* ── Form sửa banner: lớp phủ trong #app, bàn phím iOS tự cuộn, không dùng #kb ── */
+    .banner-editor {
+      position: absolute;
+      inset: 0;
+      z-index: 660;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+    }
+    .banner-editor[hidden] { display: none; }
+    .be-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(0, 0, 0, .08);
+      flex-shrink: 0;
+    }
+    .be-head-title { font-size: 16px; font-weight: 800; }
+    .be-close {
+      margin-left: auto;
+      min-width: 44px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: #fce4ec;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .be-body {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px 12px calc(20px + env(safe-area-inset-bottom));
+    }
+    .be-field { margin-bottom: 12px; }
+    .be-label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    .be-count { color: #ad1457; font-weight: 600; }
+    .be-input {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px; /* tránh zoom tự động của iOS */
+      line-height: 1.4;
+      padding: 10px;
+      border: 1px solid rgba(0, 0, 0, .15);
+      border-radius: 12px;
+      background: #fff;
+      color: inherit;
+      resize: vertical;
+    }
+    .be-emoji { display: flex; gap: 6px; margin: -4px 0 12px; }
+    .be-emoji-btn {
+      min-width: 44px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: #fce4ec;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .be-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .be-row .be-label { margin-bottom: 0; }
+    .be-select {
+      min-height: 44px;
+      font-size: 16px;
+      border: 1px solid rgba(0, 0, 0, .15);
+      border-radius: 12px;
+      background: #fff;
+      color: inherit;
+      padding: 0 8px;
+    }
+    .be-switch { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; font-weight: 600; margin-bottom: 14px; cursor: pointer; }
+    .be-switch input { position: absolute; opacity: 0; pointer-events: none; }
+    .be-switch-track { position: relative; width: 48px; height: 28px; border-radius: 14px; background: #ddd; flex-shrink: 0; transition: background .2s; }
+    .be-switch-knob { position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .2s; }
+    .be-switch input:checked + .be-switch-track { background: #e91e63; }
+    .be-switch input:checked + .be-switch-track .be-switch-knob { transform: translateX(20px); }
+    .be-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .be-btn {
+      flex: 1 1 30%;
+      min-height: 44px;
+      border: 0;
+      border-radius: 14px;
+      background: #fce4ec;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .be-btn-ghost { background: #f3f3f3; }
+    .be-btn-primary { background: #e91e63; color: #fff; }
+    .be-btn:disabled { opacity: .6; }
+    /* ── Thu hồi tin nhắn ── */
+    .revoked-bubble { font-style: italic; }
+    .revoked-text { font-size: 13px; font-style: italic; opacity: .75; }
+    .rev-backdrop { position: absolute; inset: 0; z-index: 780; display: none; background: rgba(0, 0, 0, .4); }
+    .rev-backdrop.open { display: block; }
+    .rev-sheet {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      z-index: 790;
+      display: none;
+      box-sizing: border-box;
+      background: #fff;
+      border-radius: 16px;
+      padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    }
+    .rev-sheet.open { display: block; }
+    .rev-title { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+    .rev-btn { display: block; width: 100%; min-height: 44px; margin-top: 8px; border: 0; border-radius: 12px; background: #f3f3f3; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .rev-danger { background: #e53935; color: #fff; }
     @media (prefers-color-scheme: dark) {
       .festive-banner { background: #ad1457; }
       .festive-banner::before { background: linear-gradient(90deg, #ad1457, #c2185b, #d6336c, #c2185b, #ad1457); background-size: 200% 100%; }
       .festive-banner::after { background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .35), transparent); }
       .festive-sheet { background: #3a1d2a; color: #fff; }
       .festive-close-btn { background: #5a2d40; color: #fff; }
+      .festive-edit-btn, .be-close, .be-emoji-btn { background: #5a2d40; color: #fff; }
+      .banner-editor { background: #1c1420; }
+      .be-head { border-bottom-color: rgba(255, 255, 255, .1); }
+      .be-input, .be-select { background: #2a1f30; border-color: rgba(255, 255, 255, .15); }
+      .be-btn { background: #5a2d40; color: #fff; }
+      .be-btn-ghost { background: #3a2b40; }
+      .be-btn-primary { background: #e91e63; }
+      .rev-sheet { background: #2a1f30; color: #fff; }
+      .rev-btn { background: #3a2b40; color: #fff; }
+      .rev-danger { background: #e53935; }
     }
     @media (prefers-reduced-motion: reduce) {
       .festive-track { animation: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
@@ -2491,12 +2625,86 @@
     </section>
     <div id="festive-backdrop" class="festive-backdrop"></div>
     <section id="festive-sheet" class="festive-sheet" role="dialog" aria-label="Thiệp 20/10">
-      <div class="festive-title">Chúc mừng 20/10 💐</div>
+      <div class="festive-title-row">
+        <div class="festive-title">Chúc mừng 20/10 💐</div>
+        <button id="festive-edit" class="festive-edit-btn" type="button" aria-label="Sửa banner">✏️</button>
+      </div>
       <p id="festive-long" class="festive-long"></p>
       <div class="festive-actions">
         <button id="festive-send" class="festive-send" type="button">Gửi lời chúc</button>
         <button id="festive-close" class="festive-close-btn" type="button">Đóng</button>
       </div>
+    </section>
+
+    <!-- Form sửa banner (dùng chung cả hai máy) -->
+    <div id="banner-editor" class="banner-editor" hidden>
+      <div class="be-head">
+        <span class="be-head-title">Sửa banner 💕</span>
+        <button id="be-close" class="be-close" type="button" aria-label="Đóng">✕</button>
+      </div>
+      <div class="be-body">
+        <div class="be-field">
+          <label class="be-label" for="be-text">Nội dung chạy trên banner <span id="be-text-count" class="be-count">0/200</span></label>
+          <textarea id="be-text" class="be-input" rows="2" maxlength="200"></textarea>
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-card">Lời chúc trong thẻ <span id="be-card-count" class="be-count">0/500</span></label>
+          <textarea id="be-card" class="be-input" rows="4" maxlength="500"></textarea>
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-fill">Câu điền sẵn khi gửi <span id="be-fill-count" class="be-count">0/200</span></label>
+          <textarea id="be-fill" class="be-input" rows="2" maxlength="200"></textarea>
+        </div>
+        <div class="be-emoji" id="be-emoji" aria-label="Gợi ý emoji">
+          <button type="button" class="be-emoji-btn" data-emoji="🌸" aria-label="Chèn 🌸">🌸</button>
+          <button type="button" class="be-emoji-btn" data-emoji="💐" aria-label="Chèn 💐">💐</button>
+          <button type="button" class="be-emoji-btn" data-emoji="🌹" aria-label="Chèn 🌹">🌹</button>
+          <button type="button" class="be-emoji-btn" data-emoji="💕" aria-label="Chèn 💕">💕</button>
+          <button type="button" class="be-emoji-btn" data-emoji="✨" aria-label="Chèn ✨">✨</button>
+        </div>
+        <div class="be-row">
+          <span class="be-label">Ngày hiển thị</span>
+          <select id="be-month" class="be-select" aria-label="Tháng">
+            <option value="1">Tháng 1</option><option value="2">Tháng 2</option>
+            <option value="3">Tháng 3</option><option value="4">Tháng 4</option>
+            <option value="5">Tháng 5</option><option value="6">Tháng 6</option>
+            <option value="7">Tháng 7</option><option value="8">Tháng 8</option>
+            <option value="9">Tháng 9</option><option value="10">Tháng 10</option>
+            <option value="11">Tháng 11</option><option value="12">Tháng 12</option>
+          </select>
+          <select id="be-day" class="be-select" aria-label="Ngày">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+            <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+            <option value="13">13</option><option value="14">14</option><option value="15">15</option>
+            <option value="16">16</option><option value="17">17</option><option value="18">18</option>
+            <option value="19">19</option><option value="20">20</option><option value="21">21</option>
+            <option value="22">22</option><option value="23">23</option><option value="24">24</option>
+            <option value="25">25</option><option value="26">26</option><option value="27">27</option>
+            <option value="28">28</option><option value="29">29</option><option value="30">30</option>
+            <option value="31">31</option>
+          </select>
+        </div>
+        <label class="be-switch">
+          <input type="checkbox" id="be-enabled">
+          <span class="be-switch-track" aria-hidden="true"><span class="be-switch-knob"></span></span>
+          <span>Bật banner</span>
+        </label>
+        <div class="be-actions">
+          <button id="be-defaults" class="be-btn be-btn-ghost" type="button">Khôi phục mặc định</button>
+          <button id="be-preview" class="be-btn" type="button">Xem thử</button>
+          <button id="be-save" class="be-btn be-btn-primary" type="button">Lưu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thu hồi tin nhắn (giữ lâu trên tin của mình) -->
+    <div id="rev-backdrop" class="rev-backdrop"></div>
+    <section id="rev-sheet" class="rev-sheet" role="dialog" aria-label="Thu hồi tin nhắn">
+      <div class="rev-title">Thu hồi tin nhắn này?</div>
+      <button id="rev-confirm" class="rev-btn rev-danger" type="button">Thu hồi</button>
+      <button id="rev-cancel" class="rev-btn" type="button">Huỷ</button>
     </section>
 
     <main class="chat-messages" id="messages-container">
