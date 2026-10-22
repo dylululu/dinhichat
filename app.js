@@ -5032,6 +5032,12 @@
   }
 
   festiveEditBtn?.addEventListener('click', openBannerEditor);
+  // Vào từ bảng ➕: banner ẩn (ngoài ngày đặt) vẫn mở được form sửa
+  document.getElementById('btn-banner-edit')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeFuncPanel();
+    openBannerEditor();
+  });
   beCloseBtn?.addEventListener('click', () => closeBannerEditor(false));
   bePreviewBtn?.addEventListener('click', beApplyFormToUi);
   beSaveBtn?.addEventListener('click', saveBannerEditor);
