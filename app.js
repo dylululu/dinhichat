@@ -1013,7 +1013,7 @@
       closeCoverCrop();
       coverCropTarget = target === 'avatar' ? 'avatar' : 'cover';
       coverCropRotation = 0;
-      coverCropBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      coverCropBitmap = await decodeOrientedBitmap(file);
       // Xem trước vẽ chính bmp lên canvas (cùng nguồn với xuất ảnh → không bao giờ lệch).
       coverCropImage.width = coverCropBitmap.width;
       coverCropImage.height = coverCropBitmap.height;
@@ -1806,7 +1806,7 @@
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const rect = btnSend.getBoundingClientRect();
     const festiveDay = festiveOn && !festiveReducedMotion();
-    const glyphs = festiveDay ? ['🌸', '🌷', '💗', '✨', '🌹', '💐'] : null;
+    const glyphs = festiveDay ? bannerEmojiList() : null;
     const count = festiveDay ? 4 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 3);
     for (let i = 0; i < count && activeHeartCount < 8; i++) {
       const heart = document.createElement('span');
@@ -2283,7 +2283,7 @@
 
   async function stickerBlobFromFile(file) {
     if (!file?.type?.startsWith('image/')) throw new Error('Hãy chọn tệp ảnh.');
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const bitmap = await decodeOrientedBitmap(file);
     const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
@@ -3288,9 +3288,138 @@
     if (el) el.remove();
   }
 
+  // ─── Ảnh đúng hướng: tự đọc EXIF + tự xoay/lật (Safari bỏ sót kiểu lật ngang → ảnh camera trước bị lật) ──
+  function readExifOrientation(buf) {
+    try {
+      const v = new DataView(buf);
+      if (v.byteLength < 4 || v.getUint16(0) !== 0xFFD8) return 1; // không phải JPEG
+      let off = 2;
+      while (off + 4 <= v.byteLength) {
+        if (v.getUint8(off) !== 0xFF) { off++; continue; }
+        const marker = v.getUint8(off + 1);
+        if (marker === 0xDA || marker === 0xD9) break; // tới phần dữ liệu ảnh
+        if (marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { off += 2; continue; }
+        const size = v.getUint16(off + 2);
+        if (size < 2) break;
+        if (marker === 0xE1 && off + 10 <= v.byteLength &&
+            v.getUint32(off + 4) === 0x45786966 && v.getUint16(off + 8) === 0) {
+          const tiff = off + 10;
+          const little = v.getUint16(tiff) === 0x4949; // II/MM
+          const ifd = tiff + v.getUint32(tiff + 4, little);
+          if (ifd + 2 <= v.byteLength) {
+            const count = v.getUint16(ifd, little);
+            for (let i = 0; i < count; i++) {
+              const entry = ifd + 2 + i * 12;
+              if (entry + 12 > v.byteLength) break;
+              if (v.getUint16(entry, little) === 0x0112) { // Orientation
+                const o = v.getUint16(entry + 8, little);
+                return o >= 1 && o <= 8 ? o : 1;
+              }
+            }
+          }
+          return 1;
+        }
+        off += 2 + size;
+      }
+    } catch {}
+    return 1;
+  }
+
+  // 8 phép EXIF (src → vị trí đích: 0 TL, 1 TR, 2 BL, 3 BR) — chuẩn ISO 12234
+  const EXIF_MAP = {
+    1: [0, 1, 2, 3], 2: [1, 0, 3, 2], 3: [3, 2, 1, 0], 4: [2, 3, 0, 1],
+    5: [0, 2, 1, 3], 6: [1, 3, 0, 2], 7: [3, 1, 2, 0], 8: [2, 0, 3, 1]
+  };
+
+  // Chèn APP1 Exif (IFD0 Orientation = n) ngay sau SOI của JPEG
+  function jpegWithExif(bytes, n) {
+    const payload = [0x45, 0x78, 0x69, 0x66, 0, 0, 0x49, 0x49, 0x2A, 0, 8, 0, 0, 0, 1, 0,
+      0x12, 0x01, 3, 0, 1, 0, 0, 0, n, 0, 0, 0, 0, 0, 0, 0];
+    const size = payload.length + 2;
+    const app1 = [0xFF, 0xE1, size >> 8, size & 255].concat(payload);
+    const out = new Uint8Array(2 + app1.length + bytes.length - 2);
+    out[0] = 0xFF; out[1] = 0xD8;
+    out.set(app1, 2);
+    out.set(bytes.slice(2), 2 + app1.length);
+    return new Blob([out], { type: 'image/jpeg' });
+  }
+
+  // Dò 1 lần cho mỗi kiểu EXIF: ảnh mẫu 4 góc gắn EXIF n, xem trình duyệt này xoay/lật thế nào
+  let exifProbeJpeg = null;
+  const exifProbeCache = {};
+  async function exifProbeObserved(n) {
+    if (exifProbeCache[n]) return exifProbeCache[n];
+    if (!exifProbeJpeg) {
+      const w = 60, h = 40;
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const c = cv.getContext('2d');
+      c.fillStyle = '#ff0000'; c.fillRect(0, 0, w, h / 2);
+      c.fillStyle = '#0000ff'; c.fillRect(0, h / 2, w, h / 2);
+      c.fillStyle = '#00ff00'; c.fillRect(w / 2, 0, w / 2, h / 2);
+      c.fillStyle = '#ffff00'; c.fillRect(w / 2, h / 2, w / 2, h / 2);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 1));
+      exifProbeJpeg = { bytes: new Uint8Array(await blob.arrayBuffer()), w, h };
+    }
+    const p = exifProbeJpeg;
+    const bmp = await createImageBitmap(jpegWithExif(p.bytes, n), { imageOrientation: 'from-image' });
+    const cv = document.createElement('canvas');
+    cv.width = bmp.width; cv.height = bmp.height;
+    const c = cv.getContext('2d');
+    c.drawImage(bmp, 0, 0);
+    const pal = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]]; // src: TL TR BL BR
+    const pos = [0, 0, 0, 0]; // pos[src] = vị trí thấy src trong ảnh quan sát được
+    [[2, 2], [bmp.width - 3, 2], [2, bmp.height - 3], [bmp.width - 3, bmp.height - 3]].forEach(([x, y], pi) => {
+      const d = c.getImageData(x, y, 1, 1).data;
+      let best = 0, bd = 1e9;
+      pal.forEach((col, k) => {
+        const dd = (d[0] - col[0]) ** 2 + (d[1] - col[1]) ** 2 + (d[2] - col[2]) ** 2;
+        if (dd < bd) { bd = dd; best = k; }
+      });
+      pos[best] = pi;
+    });
+    const res = { pos, swapped: bmp.width !== p.w }; // đo TRƯỚC khi đóng bmp (đóng xong width = 0)
+    bmp.close?.();
+    if (new Set(pos).size !== 4) throw new Error('dò EXIF không đáng tin');
+    exifProbeCache[n] = res;
+    return res;
+  }
+
+  // Bitmap đúng hướng: trình duyệt đã áp EXIF (đủ hay thiếu lật tùy trình duyệt) → dò cách nó làm,
+  // tự bù phần còn thiếu (Safari bỏ lật ngang/dọc → ảnh camera trước bị lật trong app).
+  async function decodeOrientedBitmap(file) {
+    let orient = 1;
+    try { orient = readExifOrientation(await file.slice(0, 131072).arrayBuffer()); } catch {}
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch { bmp = await createImageBitmap(file); }
+    if (orient === 1 || !EXIF_MAP[orient]) return bmp;
+    let obs;
+    try { obs = await exifProbeObserved(orient); } catch { return bmp; } // không dò được → giữ nguyên như cũ
+    const D = EXIF_MAP[orient];
+    const O = obs.pos;
+    const inv = [0, 0, 0, 0];
+    O.forEach((pos, src) => { inv[pos] = src; });
+    const C = inv.map((src) => D[src]); // phép cần bù: C = D ∘ O⁻¹
+    if (C[0] === 0 && C[1] === 1 && C[2] === 2 && C[3] === 3) return bmp; // trình duyệt đã làm đúng
+    const w = bmp.width, h = bmp.height;
+    const swapC = (orient >= 5) !== obs.swapped;
+    const dw = swapC ? h : w, dh = swapC ? w : h;
+    const coords = [[0, 0], [dw, 0], [0, dh], [dw, dh]];
+    const dst = C.map((label) => coords[label]);
+    const [x0, y0] = dst[0], [x1, y1] = dst[1], [x2, y2] = dst[2];
+    const canvas = document.createElement('canvas');
+    canvas.width = dw; canvas.height = dh;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform((x1 - x0) / w, (y1 - y0) / w, (x2 - x0) / h, (y2 - y0) / h, x0, y0);
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close?.();
+    try { return await createImageBitmap(canvas); } catch { return canvas; }
+  }
+
   // ─── Image resize ─────────────────────────────────────────────────────────────
   async function resizeImage(file) {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const bitmap = await decodeOrientedBitmap(file);
     const maxSide = 1280;
     let w = bitmap.width, h = bitmap.height;
     if (w > maxSide || h > maxSide) {
@@ -3960,9 +4089,8 @@
   function renderHeaderPeer() {
     const peer = getPeerProfile();
     if (userAvatar) renderAvatar(userAvatar, peer);
-    if (chatTitle) chatTitle.textContent = typeof festiveOn !== 'undefined' && festiveOn
-      ? '🌸 DiNhiChat 🌸'
-      : (peer && peer.name) || 'Iu dấu';
+    if (chatTitle) chatTitle.textContent = (typeof festiveOn !== 'undefined' && festiveOn && bannerHeaderTitle())
+      || (peer && peer.name) || 'Iu dấu';
     renderPeerStatus();
   }
 
@@ -4657,28 +4785,59 @@
   streakClose?.addEventListener('click', closeStreakSheet);
   streakBackdrop?.addEventListener('click', closeStreakSheet);
 
-  // ─── 20/10: banner + hoa rơi + thiệp ─────────────────────────────────────────
-  const FESTIVE_SEEN_KEY = 'dnc_2010_seen';
-  const FESTIVE_FLOWERS = ['🌸', '💐', '🌷', '🌹', '✨', '💗'];
-  // Nội dung banner/thiệp lấy từ chat_settings (cột null → dùng mặc định cũ)
+  // ─── Banner + hoa rơi + thiệp (cấu hình hoàn toàn qua chat_settings) ──────────
+  const BANNER_SEEN_KEY = 'dnc_banner_seen'; // `${banner_date}|${yyyy}` — pháo hoa/toast lặp theo năm hoặc khi đổi ngày
   const BANNER_CFG_KEY = 'dnc_banner_cfg_v1';
-  const BANNER_DEFAULTS = {
-    text: '🌸 Chúc mừng 20/10 🌸 Chúc Vợ iu luôn xinh đẹp, hạnh phúc và được yêu thương thật nhiều 💐 Yêu Vợ iu nhiều lắm 💕',
-    cardText: 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc Vợ iu luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn Vợ iu đã luôn ở đây 💐💕',
-    fillText: 'Chúc mừng 20/10 nhaaa Vợ iu 💐🌸 Chúc Vợ iu luôn xinh đẹp, vui vẻ và hạnh phúc nhé, yêu Vợ iu nhiều lắm 💕'
+  // MỌI giá trị mặc định của dịp lễ chỉ nằm ở đây (DB thiếu cột/null → dùng; sửa/khôi phục được)
+  const DEFAULT_BANNER = {
+    text: '🌸 Chúc mừng 20/10 🌸 Chúc {tên} luôn xinh đẹp, hạnh phúc và được yêu thương thật nhiều 💐 Yêu {tên} nhiều lắm 💕',
+    title: 'Chúc mừng 20/10 💐',
+    headerTitle: '🌸 DiNhiChat 🌸',
+    toast: 'Chúc mừng 20/10 💐',
+    cardText: 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc {tên} luôn xinh đẹp, rạng rỡ, vui vẻ và hạnh phúc mỗi ngày. Cảm ơn {tên} đã luôn ở đây 💐💕',
+    fillText: 'Chúc mừng 20/10 nhaaa {tên} 💐🌸 Chúc {tên} luôn xinh đẹp, vui vẻ và hạnh phúc nhé, yêu {tên} nhiều lắm 💕',
+    recipient: 'Vợ iu',
+    emojis: '🌸 💐 🌷 🌹 ✨ 💗',
+    color1: '#e91e63',
+    color2: '#ff9ecb',
+    date: '10-20',
+    endDate: '',
+    enabled: true,
+    fireworks: true,
+    falling: true,
+    marqueeSpeed: 14
   };
-  let bannerCfg = { text: null, cardText: null, fillText: null, date: '10-20', enabled: true };
+  // Mẫu nhanh trong form: mỗi mẫu có ngày + câu chúc ({tên} = người nhận) + emoji + màu
+  const BANNER_PRESETS = [
+    { label: '20/10', date: '10-20', title: 'Chúc mừng 20/10 💐', card: 'Nhân ngày Phụ nữ Việt Nam 20/10, chúc {tên} luôn xinh đẹp, hạnh phúc và được yêu thương thật nhiều 💐', emojis: '🌸 💐 🌷 🌹 ✨ 💗', color: '#e91e63' },
+    { label: '14/2', date: '02-14', title: 'Valentine 💗', card: 'Chúc {tên} một ngày Valentine ấm áp, nhiều chocolate và thật nhiều yêu thương 💕', emojis: '💗 💝 🌹 ✨ 💕', color: '#d81b60' },
+    { label: '8/3', date: '03-08', title: 'Chúc mừng 8/3 🌸', card: 'Chúc {tên} ngày 8/3 thật vui, luôn rạng rỡ và hạnh phúc mỗi ngày 🌸', emojis: '🌸 🌷 💐 ✨', color: '#ad1457' },
+    { label: '20/11', date: '11-20', title: 'Ngày 20/11 💐', card: 'Chúc {tên} ngày 20/11 tràn đầy niềm vui, sức khỏe và yêu thương 💐', emojis: '💐 🌸 ✨ 💗', color: '#7b1fa2' },
+    { label: 'Sinh nhật', date: '', title: 'Sinh nhật {tên} 🎂', card: 'Chúc {tên} sinh nhật thật vui, mạnh khỏe và thực hiện được mọi ước mơ 🎂🎈', emojis: '🎂 🎈 🎁 ✨ 💗', color: '#f57c00' },
+    { label: 'Kỷ niệm', date: '', title: 'Kỷ niệm yêu nhau 💑', card: 'Chúc {tên} kỷ niệm yêu nhau ấm áp, mãi nắm tay nhau đi hết những ngày phía trước 💕', emojis: '💗 💕 🌹 ✨ 💞', color: '#e91e63' },
+    { label: 'Giáng sinh', date: '12-25', title: 'Giáng sinh an lành 🎄', card: 'Chúc {tên} Giáng sinh an lành, ấm áp bên gia đình và thật nhiều niềm vui 🎄✨', emojis: '🎄 ✨ ❄️ 💖 🌟', color: '#2e7d32' },
+    { label: 'Tết', date: '01-01', title: 'Năm mới 🧧', card: 'Chúc {tên} năm mới thật nhiều sức khỏe, niềm vui, bình an và hạnh phúc 🧧🌸', emojis: '🧧 🌸 🎉 ✨ 💗', color: '#d32f2f' }
+  ];
+  // Chuỗi hợp lệ cho cột text (giữ null nếu trùng mặc định/rỗng — DB sẽ lấy mặc định)
+  function bannerCfgFromCached(c) {
+    const str = (v) => (typeof v === 'string' ? v : null);
+    return {
+      text: str(c.text), title: str(c.title), headerTitle: str(c.headerTitle),
+      toast: str(c.toast), cardText: str(c.cardText), fillText: str(c.fillText),
+      recipient: str(c.recipient), emojis: str(c.emojis),
+      color1: str(c.color1), color2: str(c.color2),
+      date: str(c.date) || DEFAULT_BANNER.date,
+      endDate: str(c.endDate) || '',
+      enabled: c.enabled !== false,
+      fireworks: c.fireworks !== false,
+      falling: c.falling !== false,
+      marqueeSpeed: Math.min(40, Math.max(6, Number(c.marqueeSpeed) || DEFAULT_BANNER.marqueeSpeed))
+    };
+  }
+  let bannerCfg = bannerCfgFromCached(DEFAULT_BANNER);
   try {
     const cachedCfg = lsGet(BANNER_CFG_KEY);
-    if (cachedCfg && typeof cachedCfg === 'object') {
-      bannerCfg = {
-        text: typeof cachedCfg.text === 'string' ? cachedCfg.text : null,
-        cardText: typeof cachedCfg.cardText === 'string' ? cachedCfg.cardText : null,
-        fillText: typeof cachedCfg.fillText === 'string' ? cachedCfg.fillText : null,
-        date: cachedCfg.date || '10-20',
-        enabled: cachedCfg.enabled !== false
-      };
-    }
+    if (cachedCfg && typeof cachedCfg === 'object') bannerCfg = bannerCfgFromCached(cachedCfg);
   } catch {}
   let festiveOn = false;
   let festiveHiddenSession = false;
@@ -4697,6 +4856,8 @@
   const festiveSendBtn = document.getElementById('festive-send');
   const festiveCloseBtn = document.getElementById('festive-close');
   const festiveEditBtn = document.getElementById('festive-edit');
+  const festiveTitleEl = document.querySelector('.festive-sheet .festive-title');
+  const festiveTrackEl = document.querySelector('.festive-track');
 
   function vnDateString() {
     try {
@@ -4707,50 +4868,120 @@
     }
   }
 
-  // Ngày banner hiển thị: so tháng-ngày (giờ VN) với banner_date + banner_enabled
-  function isBannerDay() {
-    try {
-      if (new URLSearchParams(location.search).get('event') === '2010') return true;
-    } catch {}
-    if (!bannerCfg.enabled) return false;
-    return vnDateString().slice(5) === (bannerCfg.date || '10-20');
+  // Khoảng ngày hiển thị (qua năm): [banner_date, banner_end_date]; end rỗng = đúng 1 ngày
+  function inBannerRange(todayMMDD, start, end) {
+    if (!start) return false;
+    if (!end || end === start) return todayMMDD === start;
+    if (start <= end) return todayMMDD >= start && todayMMDD <= end;
+    return todayMMDD >= start || todayMMDD <= end; // bắt đầu > kết thúc → vắt qua năm
   }
 
+  // Ngày banner hiển thị: hôm nay (giờ Asia/Ho_Chi_Minh) nằm trong khoảng + banner_enabled
+  function isBannerDay() {
+    try {
+      if (new URLSearchParams(location.search).get('event') === '1') return true; // debug, không lưu
+    } catch {}
+    if (!bannerCfg.enabled) return false;
+    return inBannerRange(vnDateString().slice(5), bannerCfg.date || DEFAULT_BANNER.date, bannerCfg.endDate || '');
+  }
+
+  // Thay {tên} = tên người nhận trong mọi nội dung hiển thị
+  function bannerRecipient() {
+    return (bannerCfg.recipient && bannerCfg.recipient.trim()) || DEFAULT_BANNER.recipient;
+  }
+  function bnText(s) {
+    return String(s == null ? '' : s).split('{tên}').join(bannerRecipient());
+  }
+  function bnDefault(key) { return DEFAULT_BANNER[key]; }
+
   function bannerText() {
-    return (bannerCfg.text && bannerCfg.text.trim()) || BANNER_DEFAULTS.text;
+    return bnText((bannerCfg.text && bannerCfg.text.trim()) || DEFAULT_BANNER.text);
   }
   function bannerCardText() {
-    return (bannerCfg.cardText && bannerCfg.cardText.trim()) || BANNER_DEFAULTS.cardText;
+    return bnText((bannerCfg.cardText && bannerCfg.cardText.trim()) || DEFAULT_BANNER.cardText);
   }
   function bannerFillText() {
-    return (bannerCfg.fillText && bannerCfg.fillText.trim()) || BANNER_DEFAULTS.fillText;
+    return bnText((bannerCfg.fillText && bannerCfg.fillText.trim()) || DEFAULT_BANNER.fillText);
+  }
+  function bannerTitle() {
+    return bnText((bannerCfg.title && bannerCfg.title.trim()) || DEFAULT_BANNER.title);
+  }
+  function bannerHeaderTitle() {
+    // null = chưa có dữ liệu → mặc định; '' = người dùng tắt → không đổi tiêu đề
+    return bnText(bannerCfg.headerTitle ?? DEFAULT_BANNER.headerTitle);
+  }
+  function bannerToastText() {
+    // null = chưa có dữ liệu → mặc định; '' = tắt toast
+    return bnText(bannerCfg.toast ?? DEFAULT_BANNER.toast);
+  }
+  function bannerEmojiList() {
+    const src = (bannerCfg.emojis && bannerCfg.emojis.trim()) || DEFAULT_BANNER.emojis;
+    const list = String(src).split(/\s+/).filter(Boolean);
+    return list.length ? list : DEFAULT_BANNER.emojis.split(/\s+/).filter(Boolean);
   }
 
   function bannerRowToCfg(row) {
-    return {
-      text: row?.banner_text ?? null,
-      cardText: row?.banner_card_text ?? null,
-      fillText: row?.banner_fill_text ?? null,
-      date: row?.banner_date || '10-20',
-      enabled: row?.banner_enabled !== false
-    };
+    // bannerCfgFromCached ép kiểu: cột không phải chuỗi/null → null (lấy mặc định)
+    return bannerCfgFromCached({
+      text: row?.banner_text, title: row?.banner_title, headerTitle: row?.banner_header_title,
+      toast: row?.banner_toast, cardText: row?.banner_card_text, fillText: row?.banner_fill_text,
+      recipient: row?.banner_recipient, emojis: row?.banner_emojis,
+      color1: row?.banner_color1, color2: row?.banner_color2,
+      date: row?.banner_date, endDate: row?.banner_end_date,
+      enabled: row?.banner_enabled, fireworks: row?.banner_fireworks,
+      falling: row?.banner_falling, marqueeSpeed: row?.banner_marquee_speed
+    });
   }
 
-  // Áp cấu hình banner (từ server/realtime/editor) + cache; ngày đổi → tính lại festiveOn/hoa
+  // Áp cấu hình banner (từ server/realtime/editor) + cache; ngày/khoảng đổi → tính lại
   function applyBannerRow(row, persistCache) {
     const prev = bannerCfg;
     bannerCfg = bannerRowToCfg(row);
     if (persistCache) lsSet(BANNER_CFG_KEY, bannerCfg);
-    const dayChanged = prev.date !== bannerCfg.date || prev.enabled !== bannerCfg.enabled;
+    const dayChanged = prev.date !== bannerCfg.date || prev.endDate !== bannerCfg.endDate ||
+      prev.enabled !== bannerCfg.enabled;
     applyBannerTexts();
+    applyBannerColors();
+    applyMarqueeSpeed();
     if (dayChanged) checkFestive();
     ensureFestiveFlowers();
+  }
+
+  // Màu gradient banner/nút: từ cấu hình (mặc định hồng); mode tối → trộn 25% đen
+  function bnColor(v, fallback) {
+    return (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) ? v : fallback;
+  }
+  function bnMixBlack(hex, ratio) {
+    try {
+      const n = parseInt(hex.slice(1), 16);
+      const f = 1 - ratio;
+      return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+        .map((v) => Math.round(v * f).toString(16).padStart(2, '0')).join('');
+    } catch { return hex; }
+  }
+  function applyBannerColors() {
+    try {
+      const dark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+      let c1 = bnColor(bannerCfg.color1, DEFAULT_BANNER.color1);
+      let c2 = bnColor(bannerCfg.color2, DEFAULT_BANNER.color2);
+      if (dark) { c1 = bnMixBlack(c1, .25); c2 = bnMixBlack(c2, .25); }
+      document.documentElement.style.setProperty('--bn-c1', c1);
+      document.documentElement.style.setProperty('--bn-c2', c2);
+    } catch {}
+  }
+
+  // Tốc độ chữ chạy (6-40 giây) áp cho .festive-track
+  function applyMarqueeSpeed() {
+    try {
+      const sp = Math.min(40, Math.max(6, Number(bannerCfg.marqueeSpeed) || DEFAULT_BANNER.marqueeSpeed));
+      if (festiveTrackEl) festiveTrackEl.style.animationDuration = sp + 's';
+    } catch {}
   }
 
   async function refreshBannerFromServer() {
     try {
       const { data, error } = await supabase.from('chat_settings')
-        .select('banner_text,banner_card_text,banner_fill_text,banner_date,banner_enabled')
+        .select('banner_text,banner_title,banner_header_title,banner_toast,banner_card_text,banner_fill_text,banner_recipient,banner_emojis,banner_color1,banner_color2,banner_date,banner_end_date,banner_enabled,banner_fireworks,banner_falling,banner_marquee_speed')
         .eq('id', 1).maybeSingle();
       if (error || !data) return;
       applyBannerRow(data, true);
@@ -4767,6 +4998,8 @@
     if (festiveTextA && festiveTextA.textContent !== txt) festiveTextA.textContent = txt;
     if (festiveTextB && festiveTextB.textContent !== txt) festiveTextB.textContent = txt;
     if (festiveLong) festiveLong.textContent = bannerCardText();
+    const cardTitle = bannerTitle();
+    if (festiveTitleEl && festiveTitleEl.textContent !== cardTitle) festiveTitleEl.textContent = cardTitle;
   }
 
   function applyFestive() {
@@ -4778,25 +5011,30 @@
     if (festiveBanner) festiveBanner.hidden = !show;
     // Hoa rơi chạy MỖI NGÀY: lớp chỉ ẩn khi reduced-motion (không phụ thuộc ngày banner)
     if (festiveLayer) festiveLayer.hidden = festiveReducedMotion();
-    if (chatTitle) chatTitle.textContent = festiveOn ? '🌸 DiNhiChat 🌸' : (currentProfile?.name || 'DiNhiChat');
+    // Tiêu đề header trong ngày: null → mặc định, chuỗi rỗng = không đổi
+    const headTitle = festiveOn ? bannerHeaderTitle() : '';
+    if (chatTitle) chatTitle.textContent = headTitle || (currentProfile?.name || 'DiNhiChat');
     applyBannerTexts();
+    applyBannerColors();
+    applyMarqueeSpeed();
   }
 
-  // Kế hoạch hoa: ngày banner đầy đủ (14 nụ), ngày thường nhẹ (8 nụ)
+  // Kế hoạch hoa: ngày lễ đầy đủ (14 nụ, theo banner_falling), ngày thường nhẹ (8 nụ)
   function festiveFlowerPlan() {
-    if (isBannerDay()) {
-      return { list: FESTIVE_FLOWERS, count: 14, sizeMin: 14, sizeMax: 26, opacity: .85, durMin: 8000, durRange: 6000, swayMin: 20, swayRange: 30 };
+    const list = bannerEmojiList();
+    if (isBannerDay() && bannerCfg.falling !== false) {
+      return { list, count: 14, sizeMin: 14, sizeMax: 26, opacity: .85, durMin: 8000, durRange: 6000, swayMin: 20, swayRange: 30 };
     }
-    return { list: ['🌸', '🌷', '💗', '✨'], count: 8, sizeMin: 12, sizeMax: 20, opacity: .6, durMin: 10000, durRange: 6000, swayMin: 10, swayRange: 12 };
+    return { list, count: 8, sizeMin: 12, sizeMax: 20, opacity: .6, durMin: 10000, durRange: 6000, swayMin: 10, swayRange: 12 };
   }
 
-  // Tái sử dụng phần tử hoa: chỉ dựng lại khi số lượng/kiểu ngày đổi (giữ pháo hoa tạm)
+  // Tái sử dụng phần tử hoa: chỉ dựng lại khi số lượng/kiểu ngày/emoji đổi (giữ pháo hoa tạm)
   function ensureFestiveFlowers() {
     if (!festiveLayer) return;
     if (festiveReducedMotion()) { stopFestiveFall(); festiveLayer.hidden = true; return; }
     festiveLayer.hidden = false;
     const plan = festiveFlowerPlan();
-    const sig = plan.count + ':' + plan.opacity;
+    const sig = plan.count + ':' + plan.opacity + ':' + plan.list.join('');
     if (sig === festivePetalSig && festivePetalEls.length === plan.count &&
         festivePetalEls.every((el) => el.isConnected)) return;
     festiveAnims.forEach((a) => { try { a.cancel(); } catch {} });
@@ -4840,7 +5078,7 @@
     const rect = festiveLayer.getBoundingClientRect();
     const cx = rect.width / 2;
     const cy = rect.height * 0.4;
-    const glyphs = ['🌸', '💗', '✨'];
+    const glyphs = bannerEmojiList();
     for (let i = 0; i < 24; i++) {
       const s = document.createElement('span');
       s.className = 'festive-petal';
@@ -4877,13 +5115,20 @@
 
   function maybeFestiveFireworks() {
     if (!festiveOn) return;
+    // Lần đầu mở app theo (banner_date|năm): lặp lại mỗi năm hoặc khi đổi ngày cấu hình
+    const seenVal = (bannerCfg.date || DEFAULT_BANNER.date) + '|' + new Date().getFullYear();
+    let firstOpen = false;
     try {
       if (chatScreen && !chatScreen.classList.contains('active')) return;
-      if (localStorage.getItem(FESTIVE_SEEN_KEY) === vnDateString()) return;
-      localStorage.setItem(FESTIVE_SEEN_KEY, vnDateString());
+      if (localStorage.getItem(BANNER_SEEN_KEY) !== seenVal) {
+        localStorage.setItem(BANNER_SEEN_KEY, seenVal);
+        firstOpen = true;
+      }
     } catch {}
-    festiveFireworks();
-    showFestiveToast('Chúc mừng 20/10 💐');
+    if (!firstOpen) return;
+    if (bannerCfg.fireworks !== false) festiveFireworks();
+    const toast = bannerToastText(); // '' = không hiện
+    if (toast) showFestiveToast(toast);
   }
 
   function checkFestive() {
@@ -4943,15 +5188,41 @@
   const beSaveBtn = document.getElementById('be-save');
   const beCloseBtn = document.getElementById('be-close');
   const beEmojiRow = document.getElementById('be-emoji');
+  const beTitle = document.getElementById('be-title');
+  const beHeader = document.getElementById('be-header');
+  const beToast = document.getElementById('be-toast');
+  const beRecipient = document.getElementById('be-recipient');
+  const beEmojis = document.getElementById('be-emojis');
+  const beColor1 = document.getElementById('be-color1');
+  const beColor2 = document.getElementById('be-color2');
+  const beColor1Code = document.getElementById('be-color1-code');
+  const beColor2Code = document.getElementById('be-color2-code');
+  const beMonth2 = document.getElementById('be-month2');
+  const beDay2 = document.getElementById('be-day2');
+  const beFireworks = document.getElementById('be-fireworks');
+  const beFalling = document.getElementById('be-falling');
+  const beSpeed = document.getElementById('be-speed');
+  const beSpeedLabel = document.getElementById('be-speed-label');
+  const bePresets = document.getElementById('be-presets');
   let bannerEditorDirty = false;
   let bannerSavedCfg = null; // cfg trước khi Xem thử (phục hồi khi bỏ thay đổi)
-  let beFocusTarget = null;  // ô textarea đang focus để chèn emoji tại con trỏ
+  let beFocusTarget = null;  // ô input/textarea đang focus để chèn emoji tại con trỏ
+
+  function beDateVal(monthSel, daySel, required) {
+    if (!required && (!monthSel.value || !daySel.value)) return '';
+    return String(monthSel.value).padStart(2, '0') + '-' + String(daySel.value).padStart(2, '0');
+  }
 
   function beFormSnapshot() {
     return {
-      text: beText.value, cardText: beCard.value, fillText: beFill.value,
-      date: beMonth.value.padStart(2, '0') + '-' + beDay.value.padStart(2, '0'),
-      enabled: beEnabled.checked
+      text: beText.value, title: beTitle.value, headerTitle: beHeader.value,
+      toast: beToast.value, cardText: beCard.value, fillText: beFill.value,
+      recipient: beRecipient.value, emojis: beEmojis.value,
+      color1: beColor1.value, color2: beColor2.value,
+      date: beDateVal(beMonth, beDay, true),
+      endDate: beDateVal(beMonth2, beDay2, false),
+      enabled: beEnabled.checked, fireworks: beFireworks.checked, falling: beFalling.checked,
+      marqueeSpeed: Number(beSpeed.value) || DEFAULT_BANNER.marqueeSpeed
     };
   }
 
@@ -4959,32 +5230,70 @@
     if (beTextCount) beTextCount.textContent = beText.value.length + '/200';
     if (beCardCount) beCardCount.textContent = beCard.value.length + '/500';
     if (beFillCount) beFillCount.textContent = beFill.value.length + '/200';
+    if (beSpeedLabel) beSpeedLabel.textContent = (beSpeed.value || '14') + ' giây';
+    if (beColor1Code) beColor1Code.textContent = String(beColor1.value || '').toUpperCase();
+    if (beColor2Code) beColor2Code.textContent = String(beColor2.value || '').toUpperCase();
   }
 
   function beApplyFormToUi() {
-    // Xem thử: áp lên banner/thiệp/hoa NGAY, chưa lưu DB
+    // Xem thử: áp lên banner/thiệp/hoa/header NGAY, chưa lưu DB
     const f = beFormSnapshot();
-    bannerCfg = {
-      text: f.text.trim() || null, cardText: f.cardText.trim() || null,
-      fillText: f.fillText.trim() || null, date: f.date, enabled: f.enabled
-    };
+    bannerCfg = bannerCfgFromCached({
+      text: f.text.trim() || null, title: f.title.trim() || null,
+      headerTitle: f.headerTitle, toast: f.toast, // '' = tắt, null = mặc định
+      cardText: f.cardText.trim() || null, fillText: f.fillText.trim() || null,
+      recipient: f.recipient.trim() || null, emojis: f.emojis.trim() || null,
+      color1: f.color1, color2: f.color2,
+      date: f.date, endDate: f.endDate,
+      enabled: f.enabled, fireworks: f.fireworks, falling: f.falling,
+      marqueeSpeed: f.marqueeSpeed
+    });
     applyBannerTexts();
+    applyBannerColors();
+    applyMarqueeSpeed();
     checkFestive();
     ensureFestiveFlowers();
   }
 
+  // Điền form từ 1 cfg (mở form / Khôi phục mặc định / mẫu nhanh)
+  function beSetDateFields(cfg) {
+    const p = String(cfg.date || DEFAULT_BANNER.date).split('-');
+    beMonth.value = String(parseInt(p[0], 10) || 10);
+    beDay.value = String(parseInt(p[1], 10) || 20);
+    if (cfg.endDate) {
+      const e = String(cfg.endDate).split('-');
+      beMonth2.value = String(parseInt(e[0], 10) || '');
+      beDay2.value = String(parseInt(e[1], 10) || '');
+    } else {
+      beMonth2.value = '';
+      beDay2.value = '';
+    }
+  }
+
+  function beSetFields(cfg) {
+    const or = (v, k) => (typeof v === 'string' ? v : DEFAULT_BANNER[k]);
+    beText.value = or(cfg.text, 'text');
+    beTitle.value = or(cfg.title, 'title');
+    beHeader.value = cfg.headerTitle ?? DEFAULT_BANNER.headerTitle; // '' = tắt, giữ nguyên
+    beToast.value = cfg.toast ?? DEFAULT_BANNER.toast;             // '' = tắt, giữ nguyên
+    beCard.value = or(cfg.cardText, 'cardText');
+    beFill.value = or(cfg.fillText, 'fillText');
+    beRecipient.value = cfg.recipient ?? DEFAULT_BANNER.recipient;
+    beEmojis.value = or(cfg.emojis, 'emojis');
+    beColor1.value = bnColor(cfg.color1, DEFAULT_BANNER.color1);
+    beColor2.value = bnColor(cfg.color2, DEFAULT_BANNER.color2);
+    beSetDateFields(cfg);
+    beEnabled.checked = cfg.enabled !== false;
+    beFireworks.checked = cfg.fireworks !== false;
+    beFalling.checked = cfg.falling !== false;
+    beSpeed.value = String(Math.min(40, Math.max(6, Number(cfg.marqueeSpeed) || DEFAULT_BANNER.marqueeSpeed)));
+    beSetCounters();
+  }
+
   function openBannerEditor() {
     if (!bannerEditor) return;
-    const cfg = bannerCfg;
-    beText.value = cfg.text ?? BANNER_DEFAULTS.text;
-    beCard.value = cfg.cardText ?? BANNER_DEFAULTS.cardText;
-    beFill.value = cfg.fillText ?? BANNER_DEFAULTS.fillText;
-    const parts = (cfg.date || '10-20').split('-');
-    beMonth.value = String(parseInt(parts[0], 10) || 10);
-    beDay.value = String(parseInt(parts[1], 10) || 20);
-    beEnabled.checked = cfg.enabled !== false;
-    beSetCounters();
-    bannerSavedCfg = cfg;
+    beSetFields(bannerCfg);
+    bannerSavedCfg = bannerCfg;
     bannerEditorDirty = false;
     bannerEditor.hidden = false;
     closeFestiveSheet();
@@ -4994,7 +5303,11 @@
     if (!bannerEditor) return;
     if (!force && bannerEditorDirty && !confirm('Bỏ thay đổi?')) return;
     // Đã bấm Xem thử → đưa banner về cấu hình đã lưu
-    if (bannerSavedCfg) { bannerCfg = bannerSavedCfg; applyBannerTexts(); checkFestive(); ensureFestiveFlowers(); }
+    if (bannerSavedCfg) {
+      bannerCfg = bannerSavedCfg;
+      applyBannerTexts(); applyBannerColors(); applyMarqueeSpeed();
+      checkFestive(); ensureFestiveFlowers();
+    }
     bannerSavedCfg = null;
     bannerEditorDirty = false;
     bannerEditor.hidden = true;
@@ -5003,13 +5316,28 @@
   async function saveBannerEditor() {
     if (!beSaveBtn) return;
     const f = beFormSnapshot();
+    const def = DEFAULT_BANNER;
+    // text-like: rỗng/trùng mặc định → null (null = dùng DEFAULT_BANNER)
+    const txtOr = (v, d) => { const s = String(v || '').trim(); return (!s || s === String(d).trim()) ? null : v; };
+    // tùy chọn (header/toast): trùng mặc định → null, '' giữ nguyên = tắt
+    const optOr = (v, d) => { const s = String(v || '').trim(); return (s === String(d).trim()) ? null : v; };
     const payload = {
-      // chuỗi rỗng hoặc trùng mặc định → null (dùng lại mặc định cũ)
-      banner_text: (f.text.trim() && f.text.trim() !== BANNER_DEFAULTS.text) ? f.text.trim() : null,
-      banner_card_text: (f.cardText.trim() && f.cardText.trim() !== BANNER_DEFAULTS.cardText) ? f.cardText.trim() : null,
-      banner_fill_text: (f.fillText.trim() && f.fillText.trim() !== BANNER_DEFAULTS.fillText) ? f.fillText.trim() : null,
+      banner_text: txtOr(f.text, def.text),
+      banner_title: txtOr(f.title, def.title),
+      banner_header_title: optOr(f.headerTitle, def.headerTitle),
+      banner_toast: optOr(f.toast, def.toast),
+      banner_card_text: txtOr(f.cardText, def.cardText),
+      banner_fill_text: txtOr(f.fillText, def.fillText),
+      banner_recipient: txtOr(f.recipient, def.recipient),
+      banner_emojis: txtOr(f.emojis, def.emojis),
+      banner_color1: txtOr(f.color1, def.color1),
+      banner_color2: txtOr(f.color2, def.color2),
       banner_date: f.date,
-      banner_enabled: f.enabled
+      banner_end_date: f.endDate || null,
+      banner_enabled: f.enabled,
+      banner_fireworks: f.fireworks,
+      banner_falling: f.falling,
+      banner_marquee_speed: f.marqueeSpeed
     };
     const oldLabel = beSaveBtn.textContent;
     beSaveBtn.disabled = true;
@@ -5042,32 +5370,36 @@
   bePreviewBtn?.addEventListener('click', beApplyFormToUi);
   beSaveBtn?.addEventListener('click', saveBannerEditor);
   beDefaultsBtn?.addEventListener('click', () => {
-    beText.value = BANNER_DEFAULTS.text;
-    beCard.value = BANNER_DEFAULTS.cardText;
-    beFill.value = BANNER_DEFAULTS.fillText;
-    beMonth.value = '10';
-    beDay.value = '20';
-    beEnabled.checked = true;
+    // Đặt toàn bộ ô về giá trị mặc định (lưu → cột text thành null)
+    beSetFields(DEFAULT_BANNER);
     bannerEditorDirty = true;
-    beSetCounters();
   });
-  [beText, beCard, beFill].forEach((el) => {
+
+  const beTextFields = [beText, beTitle, beHeader, beToast, beCard, beFill, beRecipient, beEmojis];
+  beTextFields.forEach((el) => {
     el?.addEventListener('focus', () => { beFocusTarget = el; });
     el?.addEventListener('input', () => { bannerEditorDirty = true; beSetCounters(); });
   });
-  [beMonth, beDay, beEnabled].forEach((el) => el?.addEventListener('change', () => {
+  [beColor1, beColor2, beSpeed].forEach((el) => el?.addEventListener('input', () => {
     bannerEditorDirty = true;
-    if (el === beMonth) {
-      // tháng đổi → chặn ngày vượt tháng
-      const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][Number(beMonth.value) - 1] || 31;
-      if (Number(beDay.value) > maxDay) beDay.value = String(maxDay);
-    }
+    beSetCounters();
   }));
-  // Hàng gợi ý emoji: chèn tại con trỏ của ô đang focus (setRangeText)
-  beEmojiRow?.addEventListener('click', (event) => {
+  [beEnabled, beFireworks, beFalling, beColor1, beColor2].forEach((el) =>
+    el?.addEventListener('change', () => { bannerEditorDirty = true; }));
+  // Ngày bắt đầu / ngày kết thúc: tháng đổi → chặn ngày vượt tháng
+  [[beMonth, beDay], [beMonth2, beDay2]].forEach(([mSel, dSel]) => {
+    mSel?.addEventListener('change', () => {
+      bannerEditorDirty = true;
+      const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][Number(mSel.value) - 1] || 31;
+      if (Number(dSel.value) > maxDay) dSel.value = String(maxDay);
+    });
+    dSel?.addEventListener('change', () => { bannerEditorDirty = true; });
+  });
+  // Hàng gợi ý emoji (mọi ô trong form): chèn tại con trỏ của ô đang focus (setRangeText)
+  bannerEditor?.addEventListener('click', (event) => {
     const btn = event.target.closest?.('[data-emoji]');
     if (!btn) return;
-    const target = beFocusTarget || beText;
+    const target = beFocusTarget || beEmojis;
     const emoji = btn.getAttribute('data-emoji') || '';
     try {
       const start = target.selectionStart ?? target.value.length;
@@ -5078,6 +5410,37 @@
     bannerEditorDirty = true;
     beSetCounters();
   });
+
+  // Mẫu nhanh: 1 chạm điền sẵn toàn bộ ô (chưa lưu)
+  if (bePresets) {
+    BANNER_PRESETS.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'be-preset';
+      b.dataset.idx = String(i);
+      b.textContent = p.label;
+      bePresets.appendChild(b);
+    });
+    bePresets.addEventListener('click', (event) => {
+      const b = event.target.closest?.('[data-idx]');
+      if (!b) return;
+      const p = BANNER_PRESETS[Number(b.dataset.idx)];
+      if (!p) return;
+      const keepRecipient = beRecipient.value;
+      beSetFields(Object.assign({}, DEFAULT_BANNER, {
+        date: p.date || vnDateString().slice(5), // mẫu không cố định ngày → hôm nay (sửa tay được)
+        title: p.title, cardText: p.card, emojis: p.emojis, color1: p.color,
+        recipient: keepRecipient || DEFAULT_BANNER.recipient
+      }));
+      bannerEditorDirty = true;
+      try { navigator.vibrate?.(10); } catch {}
+    });
+  }
+
+  // Áp màu/tốc độ ngay khi tải trang (kể cả khi chưa tới ngày banner)
+  applyBannerColors();
+  applyMarqueeSpeed();
+  if (beRecipient && !beRecipient.placeholder) beRecipient.placeholder = DEFAULT_BANNER.recipient;
 
   document.addEventListener('visibilitychange', () => {
     try { document.body.classList.toggle('festive-paused', document.hidden); } catch {}
@@ -5111,6 +5474,584 @@
     if (document.visibilityState === 'visible') ensurePush();
   }, 30 * 60 * 1000);
 
+  // ─── Lịch trực điều dưỡng ───────────────────────────────────────────────────
+  const DUTY_DEFAULTS = {
+    anchor_date: '2026-11-02',
+    anchor_index: 2,
+    pattern: 'HC,HC,TRUC,NGHI',
+    owner_name: null,
+    hc_time: '07:00-16:30',
+    truc_time: '07:00-07:00 (24h)'
+  };
+  const DUTY_SHIFTS = {
+    HC: { label: 'Hành chính', tag: 'HC', icon: '☀️', color: '#1e88e5' },
+    TRUC: { label: 'Trực', tag: 'TRỰC', icon: '🌙', color: '#e53935' },
+    NGHI: { label: 'Nghỉ', tag: 'NGHỈ', icon: '🛌', color: '#43a047' },
+    PHEP: { label: 'Phép', tag: 'PHÉP', icon: '🏖️', color: '#8e24aa' },
+    TRUC_BU: { label: 'Trực bù', tag: 'BÙ', icon: '💉', color: '#fb8c00' },
+    KHAC: { label: 'Khác', tag: 'KHÁC', icon: '🏥', color: '#757575' }
+  };
+  const DUTY_ORDER = ['HC', 'TRUC', 'NGHI', 'PHEP', 'TRUC_BU', 'KHAC'];
+  const DUTY_WD = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  const DUTY_WD_SHORT = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+  const dutyScreen = document.getElementById('duty-screen');
+  const dutyTitle = document.getElementById('duty-title');
+  const dutyTodayShift = document.getElementById('duty-today-shift');
+  const dutyTodayTime = document.getElementById('duty-today-time');
+  const dutyTodayNext = document.getElementById('duty-today-next');
+  const dutyTodayRest = document.getElementById('duty-today-rest');
+  const dutyChips = document.getElementById('duty-chips');
+  const dutyGrid = document.getElementById('duty-grid');
+  const dutyMonthTitle = document.getElementById('duty-month-title');
+  const dutyLegend = document.getElementById('duty-legend');
+  const dutyStats = document.getElementById('duty-stats');
+  const dutyDaySheet = document.getElementById('duty-day-sheet');
+  const dutyDayBackdrop = document.getElementById('duty-day-backdrop');
+  const dutyDayTitle = document.getElementById('duty-day-title');
+  const dutyDaySub = document.getElementById('duty-day-sub');
+  const dutyDayShift = document.getElementById('duty-day-shift');
+  const dutyDayNote = document.getElementById('duty-day-note');
+  const dutyDayCount = document.getElementById('duty-day-count');
+  const dutySetSheet = document.getElementById('duty-set-sheet');
+  const dutySetBackdrop = document.getElementById('duty-set-backdrop');
+
+  let dutyOpen = false;
+  let dutyWasPink = false;
+  let dutyCfg = { ...DUTY_DEFAULTS };
+  let dutyCfgLoaded = false;
+  let dutyOv = new Map();      // 'yyyy-mm-dd' → row override (tháng đang xem)
+  let dutyOvMonth = '';
+  let dutyMonth = '';          // 'yyyy-mm' đang xem
+  let dutyDay = '';            // ngày đang mở sheet
+  let dutyChannel = null;
+  let dutyTick = null;         // đồng hồ đếm giờ hết ca trực
+
+  // ── Ngày tháng trên UTC (yyyy-mm-dd) → không lệch giờ/DST, đúng cả qua năm ──
+  function dutyUtc(dateStr) {
+    const p = String(dateStr).split('-').map(Number);
+    return Date.UTC(p[0], (p[1] || 1) - 1, p[2] || 1);
+  }
+  function dutyAddDays(dateStr, n) {
+    return new Date(dutyUtc(dateStr) + n * 86400000).toISOString().slice(0, 10);
+  }
+  function dutyDiffDays(a, b) {
+    return Math.round((dutyUtc(a) - dutyUtc(b)) / 86400000);
+  }
+  function dutyNowVn() { // giờ VN = UTC+7 (không DST) → getter UTC = giờ VN
+    return new Date(Date.now() + 7 * 3600000);
+  }
+  function dutyWdIdx(dateStr) { return new Date(dutyUtc(dateStr)).getUTCDay(); }
+  function dutyWdName(dateStr) { return DUTY_WD[dutyWdIdx(dateStr)]; }
+  function dutyFmtDM(dateStr) { return dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7); }
+  function dutyPattern() {
+    const parts = String(dutyCfg.pattern || DUTY_DEFAULTS.pattern)
+      .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+    return parts.length ? parts : DUTY_DEFAULTS.pattern.split(',');
+  }
+
+  // ── Quy luật ca: idx = (((ngày - mốc) mod n) + n) mod n + (vị trí mốc - 1), rồi mod n ──
+  // 0=HC1, 1=HC2, 2=Trực, 3=Nghỉ (theo pattern; đúng cho quá khứ + tương lai, qua năm)
+  function dutyInfo(dateStr) {
+    const pattern = dutyPattern();
+    const n = pattern.length;
+    const anchor = dutyCfg.anchor_date || DUTY_DEFAULTS.anchor_date;
+    const anchorIdx = Math.min(Math.max(Number(dutyCfg.anchor_index) || DUTY_DEFAULTS.anchor_index, 1), n);
+    const diff = dutyDiffDays(dateStr, anchor);
+    const idx = ((((diff % n) + n) % n) + (anchorIdx - 1)) % n;
+    const raw = pattern[idx] || 'HC';
+    const code = DUTY_SHIFTS[raw] ? raw : 'KHAC';
+    // "ngày 2/2" = ngày thứ mấy trong số ngày cùng ca này của chu kỳ (HC1/HC2 → 2/2)
+    const cnt = pattern.filter((p) => p === raw).length;
+    const ord = pattern.slice(0, idx + 1).filter((p) => p === raw).length;
+    return { code, idx, dayNo: idx + 1, len: n, cnt, ord, meta: DUTY_SHIFTS[code] };
+  }
+  function getShift(dateStr) { return dutyInfo(dateStr).code; } // dùng cho test console
+  function dutyShiftOf(dateStr) { // override (điều chỉnh) thắng chu kỳ
+    const ov = dutyOv.get(dateStr);
+    if (ov && DUTY_SHIFTS[ov.shift]) return ov.shift;
+    return getShift(dateStr);
+  }
+  window.__duty = { getShift, dutyInfo, dutyShiftOf, DUTY_SHIFTS }; // hook test console
+
+  // ── Nạp dữ liệu: cache localStorage + fetch, realtime giữ mới ──
+  async function loadDutyCfg(force) {
+    if (!force) {
+      if (dutyCfgLoaded) return;
+      const cached = lsGet('dnc_duty_cfg_v1');
+      if (cached) { dutyCfg = { ...DUTY_DEFAULTS, ...cached }; dutyCfgLoaded = true; }
+    }
+    try {
+      const { data, error } = await supabase.from('duty_settings').select('*').eq('id', 1).single();
+      if (!error && data) {
+        dutyCfg = {
+          anchor_date: data.anchor_date || DUTY_DEFAULTS.anchor_date,
+          anchor_index: data.anchor_index || DUTY_DEFAULTS.anchor_index,
+          pattern: data.pattern || DUTY_DEFAULTS.pattern,
+          owner_name: data.owner_name || null,
+          hc_time: data.hc_time ?? DUTY_DEFAULTS.hc_time,
+          truc_time: data.truc_time ?? DUTY_DEFAULTS.truc_time
+        };
+        dutyCfgLoaded = true;
+        lsSet('dnc_duty_cfg_v1', dutyCfg);
+      }
+    } catch {}
+  }
+
+  async function loadDutyOverrides(month, skipCache) {
+    if (!month) return;
+    if (!skipCache && dutyOvMonth !== month) {
+      try {
+        const cached = lsGet('dnc_duty_ov_v1');
+        if (cached && cached.month === month) {
+          dutyOv = new Map((cached.rows || []).map((r) => [r.day, r]));
+          dutyOvMonth = month;
+        }
+      } catch {}
+    }
+    try {
+      const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+      const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const { data, error } = await supabase.from('duty_overrides').select('*')
+        .gte('day', month + '-01')
+        .lte('day', month + '-' + String(last).padStart(2, '0'));
+      if (!error) {
+        dutyOv = new Map((data || []).map((r) => [r.day, r]));
+        dutyOvMonth = month;
+        lsSet('dnc_duty_ov_v1', { month, rows: data || [] });
+      }
+    } catch {}
+  }
+
+  // ── Vẽ ──
+  function dutyOwnerName() {
+    return (dutyCfg.owner_name || '').trim() || getPeerProfile()?.name || 'bạn';
+  }
+
+  function dutyNextTruc(from) {
+    for (let i = 1; i <= 30; i++) {
+      const d = dutyAddDays(from, i);
+      const c = dutyShiftOf(d);
+      if (c === 'TRUC' || c === 'TRUC_BU') return d;
+    }
+    return null;
+  }
+
+  function dutyTrucRemaining() {
+    const now = dutyNowVn();
+    const mm = String(dutyCfg.truc_time || DUTY_DEFAULTS.truc_time)
+      .match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
+    let startMin = 7 * 60, endMin = 7 * 60;
+    if (mm) { startMin = Number(mm[1]) * 60 + Number(mm[2]); endMin = Number(mm[3]) * 60 + Number(mm[4]); }
+    let dur = endMin - startMin;
+    if (dur <= 0) dur += 1440; // ca 24h: hết ca hôm sau
+    const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+      Math.floor(startMin / 60), startMin % 60);
+    const left = start + dur * 60000 - now.getTime();
+    if (left <= 0) return 'Ca trực đã kết thúc';
+    const h = Math.floor(left / 3600000), m = Math.floor((left % 3600000) / 60000);
+    return `Đang trực 🌙 — còn ${h}g ${m}p tới hết ca`;
+  }
+
+  function dutyTickStart() {
+    dutyTickStop();
+    const upd = () => { if (dutyOpen) dutyTodayNext.textContent = dutyTrucRemaining(); };
+    upd();
+    dutyTick = setInterval(upd, 60000);
+  }
+  function dutyTickStop() { if (dutyTick) { clearInterval(dutyTick); dutyTick = null; } }
+
+  function renderDutyToday() {
+    const today = vnDateString();
+    const info = dutyInfo(today);
+    const code = dutyShiftOf(today);
+    const meta = DUTY_SHIFTS[code];
+    dutyTitle.textContent = `🩺 Lịch trực của ${dutyOwnerName()}`;
+    dutyTodayShift.replaceChildren();
+    const ico = document.createElement('span');
+    ico.className = 'duty-today-ico';
+    ico.textContent = meta.icon;
+    const txt = document.createElement('span');
+    const dayPart = code === info.code
+      ? `ngày ${info.ord}/${info.cnt}`      // HC2 → "ngày 2/2" (2 ngày HC trong chu kỳ)
+      : `ngày ${info.dayNo}/${info.len}`;   // ngày điều chỉnh → vị trí trong chu kỳ
+    txt.textContent = `${meta.label} – ${dayPart}`;
+    dutyTodayShift.append(ico, txt);
+    if (code === 'HC' || code === 'TRUC') {
+      dutyTodayTime.hidden = false;
+      dutyTodayTime.textContent = `Giờ ca: ${code === 'HC' ? (dutyCfg.hc_time || '—') : (dutyCfg.truc_time || '—')}`;
+    } else {
+      dutyTodayTime.hidden = true;
+      dutyTodayTime.textContent = '';
+    }
+    if (code === 'TRUC') {
+      dutyTickStart(); // đang trực → đếm giờ tới hết ca
+    } else {
+      dutyTickStop();
+      const next = dutyNextTruc(today);
+      if (next) {
+        const n = dutyDiffDays(next, today);
+        dutyTodayNext.textContent = `Ca trực tiếp theo: ${dutyWdName(next)} ${dutyFmtDM(next)} (còn ${n} ngày)`;
+      } else {
+        dutyTodayNext.textContent = 'Chưa có ca trực trong 30 ngày tới';
+      }
+    }
+    const rest = dutyShiftOf(dutyAddDays(today, 1)) === 'NGHI';
+    dutyTodayRest.hidden = !rest;
+    dutyTodayRest.textContent = rest ? 'Mai được nghỉ 🛌' : '';
+  }
+
+  function renderDutyChips() {
+    const today = vnDateString();
+    dutyChips.replaceChildren();
+    for (let i = 0; i < 7; i++) {
+      const d = dutyAddDays(today, i);
+      const meta = DUTY_SHIFTS[dutyShiftOf(d)];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'duty-chip' + (i === 0 ? ' today' : '');
+      btn.dataset.day = d;
+      btn.style.backgroundColor = meta.color;
+      btn.style.color = '#fff';
+      btn.setAttribute('aria-label', `${dutyWdName(d)} ${dutyFmtDM(d)}: ${meta.label}`);
+      const wd = document.createElement('span');
+      wd.className = 'duty-chip-wd';
+      wd.textContent = i === 0 ? 'HN' : DUTY_WD_SHORT[dutyWdIdx(d)];
+      const day = document.createElement('span');
+      day.className = 'duty-chip-day';
+      day.textContent = d.slice(8, 10);
+      const ico = document.createElement('span');
+      ico.className = 'duty-chip-ico';
+      ico.textContent = meta.icon;
+      const tag = document.createElement('span');
+      tag.className = 'duty-chip-tag';
+      tag.textContent = meta.tag;
+      btn.append(wd, day, ico, tag);
+      dutyChips.append(btn);
+    }
+  }
+
+  function renderDutyGrid() {
+    const y = Number(dutyMonth.slice(0, 4)), m = Number(dutyMonth.slice(5, 7));
+    dutyMonthTitle.textContent = `Tháng ${m}/${y}`;
+    const today = vnDateString();
+    dutyGrid.replaceChildren();
+    for (const w of ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']) {
+      const el = document.createElement('div');
+      el.className = 'duty-grid-wd';
+      el.textContent = w;
+      dutyGrid.append(el);
+    }
+    const lead = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7; // T2 = cột 0
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (let i = 0; i < lead; i++) {
+      const el = document.createElement('div');
+      el.className = 'duty-cell empty';
+      el.setAttribute('aria-hidden', 'true');
+      dutyGrid.append(el);
+    }
+    const stats = { HC: 0, TRUC: 0, NGHI: 0, PHEP: 0, TRUC_BU: 0, KHAC: 0 };
+    for (let d = 1; d <= days; d++) {
+      const ds = `${dutyMonth}-${String(d).padStart(2, '0')}`;
+      const code = dutyShiftOf(ds);
+      const meta = DUTY_SHIFTS[code];
+      stats[code] = (stats[code] || 0) + 1;
+      const ov = dutyOv.get(ds);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'duty-cell' + (ds === today ? ' is-today' : '') + (ov ? ' has-ov' : '');
+      btn.dataset.day = ds;
+      btn.style.backgroundColor = meta.color;
+      btn.style.color = '#fff';
+      btn.setAttribute('aria-label', `Ngày ${d} tháng ${m}: ${meta.label}${ov ? ', đã điều chỉnh' : ''}`);
+      const num = document.createElement('span');
+      num.className = 'duty-cell-num';
+      num.textContent = String(d);
+      const tag = document.createElement('span');
+      tag.className = 'duty-cell-tag';
+      tag.textContent = `${meta.icon}${meta.tag}`;
+      btn.append(num, tag);
+      dutyGrid.append(btn);
+    }
+    dutyLegend.replaceChildren();
+    for (const code of DUTY_ORDER) {
+      const meta = DUTY_SHIFTS[code];
+      const item = document.createElement('span');
+      item.className = 'duty-legend-item';
+      const dot = document.createElement('span');
+      dot.className = 'duty-legend-dot';
+      dot.style.backgroundColor = meta.color;
+      const t = document.createElement('span');
+      t.textContent = `${meta.icon} ${meta.label}`;
+      item.append(dot, t);
+      dutyLegend.append(item);
+    }
+    dutyStats.replaceChildren();
+    const line1 = document.createElement('div');
+    line1.textContent = `HC: ${stats.HC || 0} · Trực: ${stats.TRUC || 0} · Nghỉ: ${stats.NGHI || 0} · Phép: ${stats.PHEP || 0}`;
+    const line2 = document.createElement('div');
+    const b = document.createElement('b');
+    line2.append('Tổng số ca trực tháng này: ', b);
+    b.textContent = String((stats.TRUC || 0) + (stats.TRUC_BU || 0));
+    dutyStats.append(line1, line2);
+  }
+
+  function renderDutyAll() {
+    if (!dutyOpen) return;
+    renderDutyToday();
+    renderDutyChips();
+    renderDutyGrid();
+  }
+
+  // ── Mở / đóng màn ──
+  async function openDuty() {
+    if (!dutyScreen || dutyOpen || !currentUser) return;
+    closeFuncPanel();
+    closeStickerPanel();
+    dutyWasPink = pinkKeyboardOpen;
+    if (dutyWasPink) closePinkKeyboard();
+    resetToNativeKeyboard(); // lịch trực dùng bàn phím iOS, KHÔNG dùng #kb hồng
+    if (messageInput) messageInput.blur();
+    dutyOpen = true;
+    dutyScreen.classList.add('open');
+    dutyScreen.setAttribute('aria-hidden', 'false');
+    dutyMonth = vnDateString().slice(0, 7);
+    await loadDutyCfg();               // cache (nếu có) → vẽ ngay
+    await loadDutyOverrides(dutyMonth); // cache tháng + 1 query between
+    renderDutyAll();
+    loadDutyCfg(true).then(() => { if (dutyOpen) renderDutyAll(); }); // luôn lấy bản mới nhất
+    const scroll = document.getElementById('duty-scroll');
+    if (scroll) scroll.scrollTop = 0;
+  }
+
+  function closeDuty() {
+    if (!dutyOpen) return;
+    dutyOpen = false;
+    dutyTickStop();
+    closeDutyDay();
+    closeDutySet();
+    dutyScreen.classList.remove('open');
+    dutyScreen.setAttribute('aria-hidden', 'true');
+    const active = document.activeElement;
+    if (active && (dutyScreen.contains(active) || dutyDaySheet?.contains(active) || dutySetSheet?.contains(active)) && active.blur) {
+      active.blur();
+    }
+    if (dutyWasPink) {
+      dutyWasPink = false;
+      try { usePinkKeyboard(); } catch {}
+    }
+  }
+
+  function dutyShiftMonth(delta) {
+    let y = Number(dutyMonth.slice(0, 4)), m = Number(dutyMonth.slice(5, 7)) + delta;
+    if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+    dutyMonth = `${y}-${String(m).padStart(2, '0')}`;
+    renderDutyGrid();
+    loadDutyOverrides(dutyMonth).then(() => { if (dutyOpen) renderDutyGrid(); });
+  }
+
+  // ── Sheet điều chỉnh 1 ngày ──
+  function openDutyDay(ds) {
+    if (!dutyDaySheet || !ds) return;
+    dutyDay = ds;
+    const info = dutyInfo(ds);
+    const cycle = DUTY_SHIFTS[info.code];
+    const ov = dutyOv.get(ds);
+    const eff = DUTY_SHIFTS[dutyShiftOf(ds)];
+    dutyDayTitle.textContent = `${dutyFmtDM(ds)} ${ds.slice(0, 4)} — ${dutyWdName(ds)}`;
+    dutyDaySub.textContent = `Theo chu kỳ: ${cycle.icon} ${cycle.label}` +
+      (ov ? ` · đang đặt: ${eff.icon} ${eff.label}` : '');
+    dutyDayShift.replaceChildren();
+    for (const code of DUTY_ORDER) {
+      const o = document.createElement('option');
+      o.value = code;
+      o.textContent = `${DUTY_SHIFTS[code].icon} ${DUTY_SHIFTS[code].label}`;
+      if (code === (ov ? ov.shift : info.code)) o.selected = true;
+      dutyDayShift.append(o);
+    }
+    dutyDayNote.value = (ov && ov.note) || '';
+    dutyDayCount.textContent = String(dutyDayNote.value.length);
+    dutyDayBackdrop.classList.add('open');
+    dutyDaySheet.classList.add('open');
+    dutyDaySheet.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDutyDay() {
+    if (!dutyDaySheet || !dutyDaySheet.classList.contains('open')) return;
+    dutyDayBackdrop.classList.remove('open');
+    dutyDaySheet.classList.remove('open');
+    dutyDaySheet.setAttribute('aria-hidden', 'true');
+    dutyDay = '';
+  }
+
+  async function saveDutyDay() {
+    if (!dutyDay || !currentUser) return;
+    const ds = dutyDay;
+    const shift = dutyDayShift.value;
+    const note = (dutyDayNote.value || '').trim().slice(0, 200);
+    try {
+      if (shift === getShift(ds) && !note) {
+        const { error } = await supabase.from('duty_overrides').delete().eq('day', ds);
+        if (error) throw error;
+        dutyOv.delete(ds);
+      } else {
+        const { data, error } = await supabase.from('duty_overrides').upsert(
+          { day: ds, shift, note: note || null, updated_by: currentUser.id, updated_at: new Date().toISOString() },
+          { onConflict: 'day' }
+        ).select();
+        if (error) throw error;
+        if (data && data[0]) dutyOv.set(ds, data[0]);
+      }
+      try { lsSet('dnc_duty_ov_v1', { month: dutyMonth, rows: [...dutyOv.values()] }); } catch {}
+      renderDutyAll();
+      closeDutyDay();
+      showAppToast('Đã lưu lịch trực 💚');
+    } catch (err) {
+      console.error('saveDutyDay error:', err);
+      showAppToast('Không lưu được, thử lại');
+    }
+  }
+
+  async function resetDutyDay() {
+    if (!dutyDay) return;
+    const ds = dutyDay;
+    if (!dutyOv.has(ds)) {
+      closeDutyDay();
+      showAppToast('Ngày này đang theo chu kỳ');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('duty_overrides').delete().eq('day', ds);
+      if (error) throw error;
+      dutyOv.delete(ds);
+      try { lsSet('dnc_duty_ov_v1', { month: dutyMonth, rows: [...dutyOv.values()] }); } catch {}
+      renderDutyAll();
+      closeDutyDay();
+      showAppToast('Đã về theo chu kỳ 💚');
+    } catch (err) {
+      console.error('resetDutyDay error:', err);
+      showAppToast('Không xử lý được, thử lại');
+    }
+  }
+
+  // ── Sheet cài đặt (cả 2 tài khoản đều sửa được) ──
+  function openDutySet() {
+    if (!dutySetSheet) return;
+    document.getElementById('duty-set-owner').value = dutyCfg.owner_name || '';
+    document.getElementById('duty-set-anchor').value = dutyCfg.anchor_date || DUTY_DEFAULTS.anchor_date;
+    document.getElementById('duty-set-index').value = String(dutyCfg.anchor_index || DUTY_DEFAULTS.anchor_index);
+    document.getElementById('duty-set-hc').value = dutyCfg.hc_time || '';
+    document.getElementById('duty-set-truc').value = dutyCfg.truc_time || '';
+    dutySetBackdrop.classList.add('open');
+    dutySetSheet.classList.add('open');
+    dutySetSheet.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDutySet() {
+    if (!dutySetSheet || !dutySetSheet.classList.contains('open')) return;
+    dutySetBackdrop.classList.remove('open');
+    dutySetSheet.classList.remove('open');
+    dutySetSheet.setAttribute('aria-hidden', 'true');
+  }
+
+  async function saveDutySet() {
+    const owner = document.getElementById('duty-set-owner').value.trim().slice(0, 30) || null;
+    const anchor = document.getElementById('duty-set-anchor').value || DUTY_DEFAULTS.anchor_date;
+    const idx = Math.min(Math.max(Number(document.getElementById('duty-set-index').value) || 2, 1), 4);
+    const hc = document.getElementById('duty-set-hc').value.trim().slice(0, 40) || null;
+    const truc = document.getElementById('duty-set-truc').value.trim().slice(0, 40) || null;
+    try {
+      const { error } = await supabase.from('duty_settings').update({
+        anchor_date: anchor, anchor_index: idx, owner_name: owner,
+        hc_time: hc, truc_time: truc, updated_at: new Date().toISOString()
+      }).eq('id', 1);
+      if (error) throw error;
+      dutyCfg = { ...dutyCfg, anchor_date: anchor, anchor_index: idx, owner_name: owner, hc_time: hc, truc_time: truc };
+      dutyCfgLoaded = true;
+      lsSet('dnc_duty_cfg_v1', dutyCfg);
+      renderDutyAll();
+      closeDutySet();
+      showAppToast('Đã lưu cài đặt lịch trực 💚');
+    } catch (err) {
+      console.error('saveDutySet error:', err);
+      showAppToast('Không lưu được, thử lại');
+    }
+  }
+
+  async function dutyRestoreDefaults() {
+    document.getElementById('duty-set-owner').value = '';
+    document.getElementById('duty-set-anchor').value = DUTY_DEFAULTS.anchor_date;
+    document.getElementById('duty-set-index').value = String(DUTY_DEFAULTS.anchor_index);
+    document.getElementById('duty-set-hc').value = DUTY_DEFAULTS.hc_time;
+    document.getElementById('duty-set-truc').value = DUTY_DEFAULTS.truc_time;
+    await saveDutySet();
+  }
+
+  // ── Realtime: đổi cài đặt/điều chỉnh → làm mới ngay, không giật ──
+  function subscribeDuty() {
+    if (dutyChannel) { try { supabase.removeChannel(dutyChannel); } catch {} dutyChannel = null; }
+    if (!currentUser) return;
+    dutyChannel = supabase.channel('duty-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_settings' }, () => {
+        loadDutyCfg(true).then(() => { if (dutyOpen) renderDutyAll(); });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_overrides' }, () => {
+        loadDutyOverrides(dutyMonth || vnDateString().slice(0, 7), true)
+          .then(() => { if (dutyOpen) renderDutyAll(); });
+      })
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setTimeout(subscribeDuty, 2000);
+        }
+      });
+  }
+
+  // ── Lối vào + sự kiện ──
+  document.getElementById('btn-duty')?.addEventListener('click', () => { closeFuncPanel(); openDuty(); });
+  document.getElementById('btn-duty-quick')?.addEventListener('click', () => { closeFuncPanel(); openDuty(); });
+  document.getElementById('duty-back')?.addEventListener('click', closeDuty);
+  document.getElementById('duty-gear')?.addEventListener('click', openDutySet);
+  document.getElementById('duty-prev')?.addEventListener('click', () => dutyShiftMonth(-1));
+  document.getElementById('duty-next')?.addEventListener('click', () => dutyShiftMonth(1));
+  document.getElementById('duty-today-btn')?.addEventListener('click', () => {
+    dutyMonth = vnDateString().slice(0, 7);
+    renderDutyGrid();
+    loadDutyOverrides(dutyMonth).then(() => { if (dutyOpen) renderDutyGrid(); });
+  });
+  dutyChips?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-day]');
+    if (btn) openDutyDay(btn.dataset.day);
+  });
+  dutyGrid?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.duty-cell[data-day]');
+    if (btn) openDutyDay(btn.dataset.day);
+  });
+  let dutySwipeX = 0, dutySwipeY = 0, dutySwipeOn = false;
+  dutyGrid?.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { dutySwipeOn = false; return; }
+    dutySwipeOn = true;
+    dutySwipeX = e.touches[0].clientX;
+    dutySwipeY = e.touches[0].clientY;
+  }, { passive: true });
+  dutyGrid?.addEventListener('touchend', (e) => {
+    if (!dutySwipeOn) return;
+    dutySwipeOn = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - dutySwipeX, dy = t.clientY - dutySwipeY;
+    if (Math.abs(dx) >= 50 && Math.abs(dy) <= 40) dutyShiftMonth(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  document.getElementById('duty-day-close')?.addEventListener('click', closeDutyDay);
+  dutyDayBackdrop?.addEventListener('click', closeDutyDay);
+  document.getElementById('duty-day-save')?.addEventListener('click', saveDutyDay);
+  document.getElementById('duty-day-reset')?.addEventListener('click', resetDutyDay);
+  dutyDayNote?.addEventListener('input', () => {
+    dutyDayCount.textContent = String((dutyDayNote.value || '').length);
+  });
+  document.getElementById('duty-set-close')?.addEventListener('click', closeDutySet);
+  dutySetBackdrop?.addEventListener('click', closeDutySet);
+  document.getElementById('duty-set-save')?.addEventListener('click', saveDutySet);
+  document.getElementById('duty-set-defaults')?.addEventListener('click', dutyRestoreDefaults);
+
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
     try {
@@ -5128,6 +6069,7 @@
       await loadProfiles();
       applyProfileIdentity();
       subscribeProfilesChange();
+      subscribeDuty();
       loadStreakCache();
       refreshStreak();
       checkFestive();
@@ -5150,7 +6092,9 @@
     if (typingChannel) { supabase.removeChannel(typingChannel); typingChannel = null; }
     if (coverChannel) { supabase.removeChannel(coverChannel); coverChannel = null; }
     if (profilesChannel) { try { supabase.removeChannel(profilesChannel); } catch {} profilesChannel = null; }
+    if (dutyChannel) { try { supabase.removeChannel(dutyChannel); } catch {} dutyChannel = null; }
     if (profileOpen) closeProfile(true);
+    if (dutyOpen) closeDuty();
     hideTyping();
     chatScreen.classList.remove('active');
     authScreen.classList.add('active');

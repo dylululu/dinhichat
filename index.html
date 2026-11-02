@@ -1964,6 +1964,335 @@
     }
     .pv-value.empty { color: #b7aab0; font-style: italic; }
 
+    /* ─── Lịch trực điều dưỡng (phong cách y tế teal) ─── */
+    .duty-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 720;
+      display: none;
+      flex-direction: column;
+      background: #e8f7f5;
+      color: #12433e;
+      contain: layout paint;
+      overscroll-behavior: contain;
+    }
+    .duty-screen.open { display: flex; }
+    .duty-bar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top) + 8px) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+      background: #00897b;
+      color: #fff;
+      overflow: hidden;
+    }
+    .duty-bar-title {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .duty-bar-btn {
+      flex: 0 0 auto;
+      min-width: 44px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .18);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .duty-ecg {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 15px;
+      pointer-events: none;
+      opacity: .6;
+    }
+    .duty-ecg path {
+      fill: none;
+      stroke: #b2ebf2;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 26 300;
+      animation: duty-ecg-run 4.5s linear infinite;
+    }
+    @keyframes duty-ecg-run { to { stroke-dashoffset: -326; } }
+    .duty-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 10px 10px calc(22px + env(safe-area-inset-bottom));
+    }
+    .duty-card {
+      background: #fff;
+      border: 1px solid #cdeae6;
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 2px 8px rgba(0, 137, 123, .08);
+    }
+    .duty-card-label {
+      font-size: 12px;
+      font-weight: 800;
+      color: #00897b;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 6px;
+    }
+    .duty-today-shift {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+    .duty-today-shift .duty-today-ico { font-size: 26px; }
+    .duty-today-time { margin-top: 6px; font-size: 14px; color: #3d6b66; }
+    .duty-today-next {
+      margin-top: 9px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #00695c;
+      background: #e0f2f1;
+      border-radius: 10px;
+      padding: 9px 10px;
+    }
+    .duty-today-rest { margin-top: 8px; font-size: 14px; font-weight: 700; color: #2e7d32; }
+    .duty-chips {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 12px 2px 4px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .duty-chip {
+      flex: 0 0 auto;
+      width: 46px;
+      min-height: 76px;
+      box-sizing: border-box;
+      border: 1px solid #cdeae6;
+      border-radius: 12px;
+      background: #fff;
+      color: #12433e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 5px 2px;
+    }
+    .duty-chip.today { border: 3px solid #00897b; }
+    .duty-chip .duty-chip-wd { font-size: 10px; font-weight: 700; opacity: .85; }
+    .duty-chip .duty-chip-day { font-size: 14px; font-weight: 800; line-height: 1; }
+    .duty-chip .duty-chip-ico { font-size: 15px; line-height: 1; }
+    .duty-chip .duty-chip-tag { font-size: 9px; font-weight: 800; line-height: 1; }
+    .duty-month { margin-top: 10px; }
+    .duty-month-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .duty-month-nav {
+      flex: 0 0 auto;
+      min-width: 44px;
+      min-height: 44px;
+      border: 1px solid #b9ded9;
+      border-radius: 10px;
+      background: #fff;
+      color: #00897b;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .duty-month-title { flex: 1; min-width: 0; text-align: center; font-size: 15px; font-weight: 800; color: #00695c; }
+    .duty-today-btn {
+      flex: 0 0 auto;
+      min-height: 44px;
+      padding: 0 12px;
+      border: 1px solid #00897b;
+      border-radius: 10px;
+      background: #fff;
+      color: #00897b;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .duty-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      touch-action: pan-y;
+    }
+    .duty-grid-wd { text-align: center; font-size: 11px; font-weight: 800; color: #5f8a85; padding: 2px 0; }
+    .duty-cell {
+      position: relative;
+      aspect-ratio: 1 / 1.1;
+      min-height: 44px;
+      border: 0;
+      border-radius: 10px;
+      background: #fff;
+      color: #12433e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      font-family: inherit;
+      cursor: pointer;
+      padding: 2px 1px;
+      overflow: hidden;
+    }
+    .duty-cell.empty { background: transparent; pointer-events: none; }
+    .duty-cell .duty-cell-num { font-size: 12px; font-weight: 800; line-height: 1; }
+    .duty-cell .duty-cell-tag {
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .duty-cell.is-today { outline: 3px solid #00897b; outline-offset: -3px; }
+    .duty-cell.has-ov::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .28);
+    }
+    .duty-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .duty-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #fff;
+      border: 1px solid #cdeae6;
+      border-radius: 999px;
+      padding: 4px 9px;
+    }
+    .duty-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+    .duty-stats { margin-top: 10px; font-size: 13px; color: #35615c; line-height: 1.75; }
+    .duty-stats b { color: #00695c; }
+    .duty-sheet-backdrop { position: absolute; inset: 0; z-index: 740; display: none; background: rgba(0, 0, 0, .4); }
+    .duty-sheet-backdrop.open { display: block; }
+    .duty-sheet {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      z-index: 750;
+      display: none;
+      box-sizing: border-box;
+      max-height: 86%;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: #fff;
+      border-radius: 16px;
+      padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    }
+    .duty-sheet.open { display: block; }
+    .duty-sheet-title { font-size: 15px; font-weight: 800; color: #00695c; margin-bottom: 3px; }
+    .duty-sheet-sub { font-size: 13px; color: #4f7a75; margin-bottom: 10px; }
+    .duty-field { margin-bottom: 10px; }
+    .duty-label { display: block; font-size: 13px; font-weight: 700; color: #35615c; margin-bottom: 5px; }
+    .duty-input, .duty-select, .duty-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 44px;
+      border: 1px solid #b9ded9;
+      border-radius: 10px;
+      background: #f7fffe;
+      color: #12433e;
+      font-family: inherit;
+      font-size: 16px;
+      padding: 10px;
+    }
+    .duty-textarea { min-height: 68px; resize: vertical; }
+    .duty-counter { font-size: 11px; color: #78a29d; text-align: right; margin-top: 3px; }
+    .duty-btn {
+      display: block;
+      width: 100%;
+      min-height: 44px;
+      margin-top: 8px;
+      border: 0;
+      border-radius: 12px;
+      background: #e6f4f2;
+      color: #00695c;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .duty-btn.primary { background: #00897b; color: #fff; }
+    .duty-btn.ghost { background: #f1f1f1; color: #666; }
+    .btn-duty-quick {
+      min-width: 34px;
+      min-height: 34px;
+      padding: 0 6px;
+      border: 1px solid rgba(0, 137, 123, .4);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .9);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    @media (max-width: 359px) { .btn-duty-quick { display: none; } }
+    @media (prefers-color-scheme: dark) {
+      .duty-screen { background: #0e1f1d; color: #d7efec; }
+      .duty-bar { background: #00564e; }
+      .duty-ecg path { stroke: #4db6ac; }
+      .duty-card { background: #15302d; border-color: #24514c; box-shadow: none; }
+      .duty-card-label { color: #4db6ac; }
+      .duty-today-time { color: #9cc5c0; }
+      .duty-today-next { background: #1c3f3b; color: #80cbc4; }
+      .duty-today-rest { color: #81c784; }
+      .duty-chip { background: #15302d; border-color: #24514c; color: #d7efec; }
+      .duty-chip.today { border-color: #4db6ac; }
+      .duty-month-nav { background: #15302d; border-color: #2c5a55; color: #4db6ac; }
+      .duty-month-title { color: #80cbc4; }
+      .duty-today-btn { background: #15302d; border-color: #4db6ac; color: #4db6ac; }
+      .duty-cell { background: #15302d; color: #d7efec; }
+      .duty-cell.empty { background: transparent; }
+      .duty-cell.is-today { outline-color: #4db6ac; }
+      .duty-grid-wd { color: #8fb8b3; }
+      .duty-legend-item { background: #15302d; border-color: #24514c; color: #b9dcd8; }
+      .duty-stats { color: #9cc5c0; }
+      .duty-stats b { color: #80cbc4; }
+      .duty-sheet { background: #15302d; color: #d7efec; }
+      .duty-sheet-title { color: #80cbc4; }
+      .duty-sheet-sub { color: #8fb8b3; }
+      .duty-label { color: #9cc5c0; }
+      .duty-input, .duty-select, .duty-textarea { background: #0e1f1d; border-color: #2c5a55; color: #d7efec; }
+      .duty-counter { color: #78a29d; }
+      .duty-btn { background: #1f4a45; color: #b9dcd8; }
+      .duty-btn.primary { background: #00897b; color: #fff; }
+      .duty-btn.ghost { background: #2a3338; color: #cfd8dc; }
+      .btn-duty-quick { background: rgba(40, 24, 34, .9); border-color: rgba(255, 111, 156, .45); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .duty-ecg path { animation: none; stroke-dasharray: none; }
+    }
+
     @media (prefers-color-scheme: dark) {
       .profile-screen { background: #1e1118; }
       .profile-bar { background: #2c1620; border-bottom-color: #5a2d40; }
@@ -2136,7 +2465,7 @@
     .send-gather-overlay { height: var(--vvh, 100dvh); bottom: auto; }
     input, textarea, select, [contenteditable] { font-size: 16px !important; }
 
-    /* 20/10: banner + lớp hoa rơi + thiệp */
+    /* Banner + lớp hoa rơi + thiệp (màu theo --bn-c1/--bn-c2 từ cấu hình) */
     .festive-banner {
       display: flex;
       align-items: center;
@@ -2144,7 +2473,7 @@
       flex: 0 0 auto;
       min-height: 36px;
       padding: 2px max(8px, env(safe-area-inset-right)) 2px max(8px, env(safe-area-inset-left));
-      background: #e91e63;
+      background: var(--bn-c1, #e91e63);
       color: #fff;
       position: relative;
       z-index: 9;
@@ -2159,7 +2488,7 @@
       bottom: 0;
       left: 0;
       width: 200%;
-      background: linear-gradient(90deg, #e91e63, #ff6f91, #ff9ecb, #ff6f91, #e91e63);
+      background: linear-gradient(90deg, var(--bn-c1, #e91e63), var(--bn-c2, #ff9ecb), var(--bn-c1, #e91e63));
       animation: festive-breathe 8s ease-in-out infinite alternate;
       will-change: transform;
       pointer-events: none;
@@ -2371,7 +2700,7 @@
       min-height: 44px;
       border: 0;
       border-radius: 14px;
-      background: #e91e63;
+      background: var(--bn-c1, #e91e63);
       color: #fff;
       font-size: 15px;
       font-weight: 700;
@@ -2438,6 +2767,33 @@
     .be-field { margin-bottom: 12px; }
     .be-label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
     .be-count { color: #ad1457; font-weight: 600; }
+    .be-hint { color: #8a8a8a; font-weight: 600; font-size: 12px; }
+    .be-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .be-preset {
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: #fce4ec;
+      color: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .be-preset:active { background: #f8bbd0; }
+    .be-colors { display: flex; gap: 14px; }
+    .be-color { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+    .be-color input[type='color'] {
+      width: 52px;
+      height: 44px;
+      padding: 0;
+      border: 1px solid rgba(0, 0, 0, .15);
+      border-radius: 12px;
+      background: none;
+      cursor: pointer;
+    }
+    .be-color-code { font-size: 13px; font-weight: 700; font-family: ui-monospace, monospace; }
+    .be-range { width: 100%; height: 44px; margin: 0; accent-color: #e91e63; }
     .be-input {
       width: 100%;
       box-sizing: border-box;
@@ -2513,12 +2869,14 @@
     .rev-btn { display: block; width: 100%; min-height: 44px; margin-top: 8px; border: 0; border-radius: 12px; background: #f3f3f3; font-size: 15px; font-weight: 700; cursor: pointer; }
     .rev-danger { background: #e53935; color: #fff; }
     @media (prefers-color-scheme: dark) {
-      .festive-banner { background: #ad1457; }
-      .festive-banner::before { background: linear-gradient(90deg, #ad1457, #c2185b, #d6336c, #c2185b, #ad1457); background-size: 200% 100%; }
+      .festive-banner { background: var(--bn-c1, #ad1457); }
+      .festive-banner::before { background: linear-gradient(90deg, var(--bn-c1, #ad1457), var(--bn-c2, #f06292), var(--bn-c1, #ad1457)); background-size: 200% 100%; }
       .festive-banner::after { background: linear-gradient(105deg, transparent, rgba(255, 255, 255, .35), transparent); }
       .festive-sheet { background: #3a1d2a; color: #fff; }
       .festive-close-btn { background: #5a2d40; color: #fff; }
       .festive-edit-btn, .be-close, .be-emoji-btn { background: #5a2d40; color: #fff; }
+      .be-preset { background: #5a2d40; color: #fff; }
+      .be-hint { color: #9d8f9a; }
       .banner-editor { background: #1c1420; }
       .be-head { border-bottom-color: rgba(255, 255, 255, .1); }
       .be-input, .be-select { background: #2a1f30; border-color: rgba(255, 255, 255, .15); }
@@ -2583,6 +2941,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="btn-duty-quick" class="btn-duty-quick" type="button" aria-label="Lịch trực">🩺</button>
         <button id="streak-pill" class="streak-pill is-zero" type="button" aria-label="Chuỗi giữ lửa"><span class="streak-heart" id="streak-heart">🤍</span><span id="streak-num">0</span><span class="streak-word">&nbsp;ngày</span><span class="streak-warn" aria-hidden="true"></span></button>
         <button id="btn-enable-notify" class="btn-notify">🔔 Bật thông báo</button>
         <button id="btn-cover" class="btn-cover" type="button" aria-label="Ảnh bìa">🖼️</button>
@@ -2595,7 +2954,7 @@
     </header>
     <div id="festive-banner" class="festive-banner" hidden>
       <span class="festive-side" aria-hidden="true"><span class="festive-rose">🌹</span><span class="festive-sp s1">✨</span><span class="festive-sp s2">✨</span><span class="festive-sp s3">✨</span></span>
-      <button id="festive-open" class="festive-marquee" type="button" aria-label="Mở thiệp 20/10"><span class="festive-track"><span id="festive-text-a"></span><span id="festive-text-b" aria-hidden="true"></span></span></button>
+      <button id="festive-open" class="festive-marquee" type="button" aria-label="Mở thiệp"><span class="festive-track"><span id="festive-text-a"></span><span id="festive-text-b" aria-hidden="true"></span></span></button>
       <span class="festive-side" aria-hidden="true"><span class="festive-rose">🌹</span><span class="festive-sp s1">✨</span><span class="festive-sp s2">✨</span><span class="festive-sp s3">✨</span></span>
       <button id="festive-hide" class="festive-close" type="button" aria-label="Thu gọn">✕</button>
       <span class="festive-beam" aria-hidden="true"></span>
@@ -2624,9 +2983,9 @@
       <button id="streak-close" class="streak-close" type="button">Đóng</button>
     </section>
     <div id="festive-backdrop" class="festive-backdrop"></div>
-    <section id="festive-sheet" class="festive-sheet" role="dialog" aria-label="Thiệp 20/10">
+    <section id="festive-sheet" class="festive-sheet" role="dialog" aria-label="Thiệp">
       <div class="festive-title-row">
-        <div class="festive-title">Chúc mừng 20/10 💐</div>
+        <div class="festive-title"></div>
         <button id="festive-edit" class="festive-edit-btn" type="button" aria-label="Sửa banner">✏️</button>
       </div>
       <p id="festive-long" class="festive-long"></p>
@@ -2644,8 +3003,20 @@
       </div>
       <div class="be-body">
         <div class="be-field">
+          <span class="be-label">Mẫu nhanh (điền sẵn, chưa lưu)</span>
+          <div class="be-presets" id="be-presets"></div>
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-recipient">Tên người nhận <span class="be-hint">dùng {tên} trong câu</span></label>
+          <input id="be-recipient" class="be-input" type="text" maxlength="30" placeholder="" autocapitalize="off">
+        </div>
+        <div class="be-field">
           <label class="be-label" for="be-text">Nội dung chạy trên banner <span id="be-text-count" class="be-count">0/200</span></label>
           <textarea id="be-text" class="be-input" rows="2" maxlength="200"></textarea>
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-title">Tiêu đề thẻ</label>
+          <input id="be-title" class="be-input" type="text" maxlength="60">
         </div>
         <div class="be-field">
           <label class="be-label" for="be-card">Lời chúc trong thẻ <span id="be-card-count" class="be-count">0/500</span></label>
@@ -2655,15 +3026,34 @@
           <label class="be-label" for="be-fill">Câu điền sẵn khi gửi <span id="be-fill-count" class="be-count">0/200</span></label>
           <textarea id="be-fill" class="be-input" rows="2" maxlength="200"></textarea>
         </div>
-        <div class="be-emoji" id="be-emoji" aria-label="Gợi ý emoji">
-          <button type="button" class="be-emoji-btn" data-emoji="🌸" aria-label="Chèn 🌸">🌸</button>
-          <button type="button" class="be-emoji-btn" data-emoji="💐" aria-label="Chèn 💐">💐</button>
-          <button type="button" class="be-emoji-btn" data-emoji="🌹" aria-label="Chèn 🌹">🌹</button>
-          <button type="button" class="be-emoji-btn" data-emoji="💕" aria-label="Chèn 💕">💕</button>
-          <button type="button" class="be-emoji-btn" data-emoji="✨" aria-label="Chèn ✨">✨</button>
+        <div class="be-field">
+          <label class="be-label" for="be-header">Tiêu đề header trong ngày <span class="be-hint">rỗng = không đổi</span></label>
+          <input id="be-header" class="be-input" type="text" maxlength="40">
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-toast">Toast chào khi mở lần đầu <span class="be-hint">rỗng = tắt</span></label>
+          <input id="be-toast" class="be-input" type="text" maxlength="80">
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="be-emojis">Emoji hiệu ứng <span class="be-hint">cách nhau khoảng trắng</span></label>
+          <input id="be-emojis" class="be-input" type="text" maxlength="60" placeholder="🌸 💐 🌷 🌹 ✨ 💗">
+          <div class="be-emoji" id="be-emoji" aria-label="Gợi ý emoji">
+            <button type="button" class="be-emoji-btn" data-emoji="🌸" aria-label="Chèn 🌸">🌸</button>
+            <button type="button" class="be-emoji-btn" data-emoji="💐" aria-label="Chèn 💐">💐</button>
+            <button type="button" class="be-emoji-btn" data-emoji="🌹" aria-label="Chèn 🌹">🌹</button>
+            <button type="button" class="be-emoji-btn" data-emoji="💕" aria-label="Chèn 💕">💕</button>
+            <button type="button" class="be-emoji-btn" data-emoji="✨" aria-label="Chèn ✨">✨</button>
+          </div>
+        </div>
+        <div class="be-field">
+          <span class="be-label">Màu banner</span>
+          <div class="be-colors">
+            <label class="be-color"><input type="color" id="be-color1" value="#e91e63"><span id="be-color1-code" class="be-color-code">#E91E63</span></label>
+            <label class="be-color"><input type="color" id="be-color2" value="#ff9ecb"><span id="be-color2-code" class="be-color-code">#FF9ECB</span></label>
+          </div>
         </div>
         <div class="be-row">
-          <span class="be-label">Ngày hiển thị</span>
+          <span class="be-label">Ngày bắt đầu</span>
           <select id="be-month" class="be-select" aria-label="Tháng">
             <option value="1">Tháng 1</option><option value="2">Tháng 2</option>
             <option value="3">Tháng 3</option><option value="4">Tháng 4</option>
@@ -2686,11 +3076,51 @@
             <option value="31">31</option>
           </select>
         </div>
+        <div class="be-row">
+          <span class="be-label">Ngày kết thúc</span>
+          <select id="be-month2" class="be-select" aria-label="Tháng kết thúc">
+            <option value="">Không</option>
+            <option value="1">Tháng 1</option><option value="2">Tháng 2</option>
+            <option value="3">Tháng 3</option><option value="4">Tháng 4</option>
+            <option value="5">Tháng 5</option><option value="6">Tháng 6</option>
+            <option value="7">Tháng 7</option><option value="8">Tháng 8</option>
+            <option value="9">Tháng 9</option><option value="10">Tháng 10</option>
+            <option value="11">Tháng 11</option><option value="12">Tháng 12</option>
+          </select>
+          <select id="be-day2" class="be-select" aria-label="Ngày kết thúc">
+            <option value="">—</option>
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+            <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+            <option value="13">13</option><option value="14">14</option><option value="15">15</option>
+            <option value="16">16</option><option value="17">17</option><option value="18">18</option>
+            <option value="19">19</option><option value="20">20</option><option value="21">21</option>
+            <option value="22">22</option><option value="23">23</option><option value="24">24</option>
+            <option value="25">25</option><option value="26">26</option><option value="27">27</option>
+            <option value="28">28</option><option value="29">29</option><option value="30">30</option>
+            <option value="31">31</option>
+          </select>
+        </div>
         <label class="be-switch">
           <input type="checkbox" id="be-enabled">
           <span class="be-switch-track" aria-hidden="true"><span class="be-switch-knob"></span></span>
           <span>Bật banner</span>
         </label>
+        <label class="be-switch">
+          <input type="checkbox" id="be-fireworks">
+          <span class="be-switch-track" aria-hidden="true"><span class="be-switch-knob"></span></span>
+          <span>Pháo hoa khi mở lần đầu</span>
+        </label>
+        <label class="be-switch">
+          <input type="checkbox" id="be-falling">
+          <span class="be-switch-track" aria-hidden="true"><span class="be-switch-knob"></span></span>
+          <span>Hoa rơi ngày lễ</span>
+        </label>
+        <div class="be-field">
+          <label class="be-label" for="be-speed">Tốc độ chữ chạy <span id="be-speed-label" class="be-count">14 giây</span></label>
+          <input type="range" id="be-speed" class="be-range" min="6" max="40" step="1" value="14">
+        </div>
         <div class="be-actions">
           <button id="be-defaults" class="be-btn be-btn-ghost" type="button">Khôi phục mặc định</button>
           <button id="be-preview" class="be-btn" type="button">Xem thử</button>
@@ -2749,6 +3179,9 @@
         <button class="func-item" id="btn-banner-edit" type="button" role="menuitem" aria-label="Sửa banner">
           <span class="func-icon" aria-hidden="true">🌸</span><span class="func-label">Sửa banner</span>
         </button>
+        <button class="func-item" id="btn-duty" type="button" role="menuitem" aria-label="Lịch trực">
+          <span class="func-icon" aria-hidden="true">🩺</span><span class="func-label">Lịch trực</span>
+        </button>
       </div>
       <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
         <div id="sticker-grid" class="sticker-grid"></div>
@@ -2795,6 +3228,90 @@
       </div>
       <input type="file" id="profile-avatar-file" accept="image/*"
         style="position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none">
+    </section>
+
+    <section id="duty-screen" class="duty-screen" aria-label="Lịch trực" aria-hidden="true">
+      <header class="duty-bar">
+        <button id="duty-back" class="duty-bar-btn" type="button" aria-label="Quay lại">←</button>
+        <div class="duty-bar-title" id="duty-title">🩺 Lịch trực</div>
+        <button id="duty-gear" class="duty-bar-btn" type="button" aria-label="Cài đặt lịch trực">⚙️</button>
+        <svg class="duty-ecg" viewBox="0 0 300 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <path d="M0 8 H56 L62 3 L68 13 L74 5 L80 8 H140 L146 3 L152 13 L158 5 L164 8 H224 L230 3 L236 13 L242 5 L248 8 H300" />
+        </svg>
+      </header>
+      <div class="duty-scroll" id="duty-scroll">
+        <div class="duty-card">
+          <div class="duty-card-label">Hôm nay</div>
+          <div class="duty-today-shift" id="duty-today-shift"></div>
+          <div class="duty-today-time" id="duty-today-time"></div>
+          <div class="duty-today-next" id="duty-today-next"></div>
+          <div class="duty-today-rest" id="duty-today-rest" hidden></div>
+        </div>
+        <div class="duty-chips" id="duty-chips" aria-label="7 ngày tới"></div>
+        <div class="duty-month">
+          <div class="duty-month-bar">
+            <button id="duty-prev" class="duty-month-nav" type="button" aria-label="Tháng trước">◀</button>
+            <div class="duty-month-title" id="duty-month-title"></div>
+            <button id="duty-next" class="duty-month-nav" type="button" aria-label="Tháng sau">▶</button>
+            <button id="duty-today-btn" class="duty-today-btn" type="button">Hôm nay</button>
+          </div>
+          <div class="duty-grid" id="duty-grid"></div>
+          <div class="duty-legend" id="duty-legend"></div>
+          <div class="duty-stats" id="duty-stats"></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="duty-day-backdrop" class="duty-sheet-backdrop"></div>
+    <section id="duty-day-sheet" class="duty-sheet" role="dialog" aria-label="Điều chỉnh ca" aria-hidden="true">
+      <div class="duty-sheet-title" id="duty-day-title"></div>
+      <div class="duty-sheet-sub" id="duty-day-sub"></div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-day-shift">Ca trong ngày</label>
+        <select id="duty-day-shift" class="duty-select"></select>
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-day-note">Ghi chú</label>
+        <textarea id="duty-day-note" class="duty-textarea" maxlength="200" placeholder="VD: đổi ca với bé"></textarea>
+        <div class="duty-counter"><span id="duty-day-count">0</span>/200</div>
+      </div>
+      <button id="duty-day-save" class="duty-btn primary" type="button">Lưu</button>
+      <button id="duty-day-reset" class="duty-btn" type="button">Về theo chu kỳ</button>
+      <button id="duty-day-close" class="duty-btn ghost" type="button">Đóng</button>
+    </section>
+
+    <div id="duty-set-backdrop" class="duty-sheet-backdrop"></div>
+    <section id="duty-set-sheet" class="duty-sheet" role="dialog" aria-label="Cài đặt lịch trực" aria-hidden="true">
+      <div class="duty-sheet-title">⚙️ Cài đặt lịch trực</div>
+      <div class="duty-sheet-sub">Mốc chu kỳ + giờ ca · mặc định 02/11/2026 = Hành chính 2</div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-set-owner">Tên điều dưỡng</label>
+        <input id="duty-set-owner" class="duty-input" type="text" maxlength="30" autocomplete="off" placeholder="VD: Bé Ốc">
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-set-anchor">Ngày mốc</label>
+        <input id="duty-set-anchor" class="duty-input" type="date">
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-set-index">Ngày đó là ca số</label>
+        <select id="duty-set-index" class="duty-select">
+          <option value="1">Hành chính 1</option>
+          <option value="2">Hành chính 2</option>
+          <option value="3">Trực</option>
+          <option value="4">Nghỉ</option>
+        </select>
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-set-hc">Giờ ca Hành chính</label>
+        <input id="duty-set-hc" class="duty-input" type="text" maxlength="40" autocomplete="off" placeholder="07:00-16:30">
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-set-truc">Giờ ca Trực</label>
+        <input id="duty-set-truc" class="duty-input" type="text" maxlength="40" autocomplete="off" placeholder="07:00-07:00 (24h)">
+      </div>
+      <button id="duty-set-save" class="duty-btn primary" type="button">Lưu</button>
+      <button id="duty-set-defaults" class="duty-btn" type="button">Khôi phục mặc định</button>
+      <button id="duty-set-close" class="duty-btn ghost" type="button">Đóng</button>
     </section>
 
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
