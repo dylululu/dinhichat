@@ -3467,6 +3467,7 @@
     if (!files || files.length === 0) return;
     sendStopTyping();
     const caption = messageInput.value.trim();
+    if (caption && !(await wordFilterGate(caption))) return;
     if (caption) {
       messageInput.value = '';
       resizeMessageInput();
@@ -4627,6 +4628,7 @@
   async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || !currentUser) return;
+    if (!(await wordFilterGate(text))) return;
     const textFlightSource = captureTextFlightSource();
     sendStopTyping();
     const remindSelect = document.getElementById('remind-select');
@@ -6279,6 +6281,455 @@
     if (b) setDutyDayAnchor(Number(b.dataset.idx) || 1);
   });
 
+  // ─── Bộ lọc lời lẽ ─────────────────────────────────────────────────────────
+  const WF_ADMIN_ID = 'b8ef50d7-73a6-4f2c-a977-c777392d27be';
+  const WF_CACHE_KEY = 'dnc_word_filter_v1';
+  const WF_DEFAULT_WORDS = [
+    'mày', 'tao', 'm', 't', 'mầy', 'tụi mày', 'bọn mày', 'thằng', 'con nhỏ',
+    'đm', 'dm', 'đmm', 'dmm', 'vcl', 'vl', 'vkl', 'clgt', 'cc', 'cặc', 'lồn', 'đụ', 'địt', 'đéo', 'đ*t',
+    'ngu', 'óc chó', 'mất dạy', 'khốn nạn', 'đồ điên', 'câm mồm', 'cút', 'biến đi', 'im đi'
+  ];
+  const WF_DEFAULT_CFG = {
+    enabled: true,
+    mode: 'confirm',
+    words: WF_DEFAULT_WORDS,
+    reminderTitle: 'Bình tĩnh nào 💗',
+    reminderText: 'Lời nói có thể làm người mình thương tổn thương. Hít thở sâu rồi nhắn lại nhẹ nhàng hơn nhé.'
+  };
+  let wordFilterCfg = { ...WF_DEFAULT_CFG, words: WF_DEFAULT_WORDS.slice() };
+  let wordFilterChannel = null;
+  let wfDraftWords = [];
+  let wfDialogResolve = null;
+  let wfBreathTimer = null;
+  let wfWarnTimer = null;
+  let wfWasPink = false;
+  let wfEditorOpen = false;
+  let wfEditorReadonly = false;
+  let wfEditorDirty = false;
+  let wfEditorSnapshot = '';
+
+  const wfEl = (id) => document.getElementById(id);
+  const WF_TONE_RE = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20f0]/;
+
+  function wfNormalizeWord(w) {
+    return String(w == null ? '' : w).normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+  // Từ có dấu → chỉ khớp nguyên văn; không có dấu → thêm bản đ→d
+  function wfFold(x) {
+    if (WF_TONE_RE.test(x.normalize('NFD'))) return x;
+    return x.replace(/đ/g, 'd');
+  }
+  function wfOn() { return wordFilterCfg.enabled !== false; }
+  function wfMode() {
+    const m = wordFilterCfg.mode;
+    return (m === 'warn' || m === 'block') ? m : 'confirm';
+  }
+  function wfModeLabel(m) {
+    if (m === 'warn') return 'Nhắc nhở & vẫn gửi';
+    if (m === 'block') return 'Chặn hẳn';
+    return 'Nhắc nhở & hỏi lại';
+  }
+  function wfTitle() { return wordFilterCfg.reminderTitle || WF_DEFAULT_CFG.reminderTitle; }
+  function wfText() { return wordFilterCfg.reminderText || WF_DEFAULT_CFG.reminderText; }
+
+  // Khớp theo ranh giới từ; trả về danh sách từ bắt gặp
+  function checkMessage(text, words) {
+    let s = String(text == null ? '' : text);
+    if (!s) return [];
+    const list = (Array.isArray(words) ? words : (wordFilterCfg.words || []))
+      .map(wfNormalizeWord).filter(Boolean);
+    if (!list.length) return [];
+    s = s.replace(/https?:\/\/\S+|www\.\S+/gi, ' ');            // bỏ link
+    s = s.split('\n').filter((l) => !/^\s*(?:>|↳|↩)/.test(l)).join(' '); // bỏ trích dẫn trả lời
+    s = s.normalize('NFC').toLowerCase();
+    s = s.replace(/(.)\1{2,}/g, (m, c) => c.repeat(m.length % 2 === 0 ? 2 : 1)); // aaa→a, đmmmm→đmm
+    const parts = s.split(/([\s.,;:!?…„"'“”«»()\[\]{}…/\\|+&=%$#@^~`<>_-]+)/);
+    const toks = [];
+    const seps = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) toks.push(parts[i]);
+      else seps[(i - 1) / 2] = parts[i];
+    }
+    const cands = new Set();
+    toks.forEach((t) => { if (t) cands.add(t); });
+    // Gộp chữ cái cách nhau bởi chấm/khoảng trắng/gạch khi mọi đoạn ≤ 2 ký tự (đ.m, v c l)
+    for (let i = 0; i + 1 < toks.length; i++) {
+      const a = toks[i];
+      if (!a || a.length > 2) continue;
+      if (!seps[i] || !/^[\s.\-]+$/.test(seps[i])) continue;
+      let merged = a;
+      let j = i;
+      while (j + 1 < toks.length && toks[j + 1] && toks[j + 1].length <= 2 &&
+        seps[j] && /^[\s.\-]+$/.test(seps[j])) {
+        merged += toks[j + 1];
+        j++;
+      }
+      if (j > i) cands.add(merged);
+    }
+    const cand = [...cands].map((t) => [t, wfFold(t)]);
+    const hits = [];
+    for (const raw of (Array.isArray(words) ? words : (wordFilterCfg.words || []))) {
+      const w = wfNormalizeWord(raw);
+      if (!w) continue;
+      const wp = w.split(' ');
+      if (wp.length === 1) {
+        const wv = [w, wfFold(w)];
+        if (cand.some(([a, b]) => wv.includes(a) || wv.includes(b))) hits.push(raw);
+      } else {
+        outer: for (let i = 0; i + wp.length <= toks.length; i++) {
+          if (!toks[i]) continue;
+          for (let k = 0; k < wp.length; k++) {
+            const t = toks[i + k];
+            if (!t) continue outer;
+            const tf = wfFold(t);
+            if (t !== wp[k] && tf !== wp[k] && tf !== wfFold(wp[k])) continue outer;
+          }
+          hits.push(raw);
+          break;
+        }
+      }
+    }
+    return hits;
+  }
+
+  // ── Gửi bị chặn bởi bộ lọc ──
+  async function wordFilterGate(text) {
+    if (wfEl('wf-dialog')?.classList.contains('open')) return false;
+    if (!wfOn()) return true;
+    const hits = checkMessage(text);
+    if (!hits.length) return true;
+    if (wfMode() === 'warn') { showWfWarn(); return true; }
+    return openWfDialog(hits);
+  }
+
+  function wfCloseKeyboard() {
+    wfWasPink = pinkKeyboardOpen;
+    if (pinkKeyboardOpen) closePinkKeyboard();
+    try { messageInput.blur(); } catch {}
+  }
+  function wfRestoreKeyboard() {
+    if (wfWasPink) openPinkKeyboard();
+    keepMessageInputFocused();
+  }
+
+  function openWfDialog(hits) {
+    const dlg = wfEl('wf-dialog');
+    const bd = wfEl('wf-backdrop');
+    if (!dlg || !bd) return Promise.resolve(true);
+    wfEl('wf-dlg-title').textContent = wfTitle();
+    wfEl('wf-dlg-text').textContent = wfText();
+    const box = wfEl('wf-dlg-hits');
+    box.textContent = '';
+    hits.forEach((h) => {
+      const s = document.createElement('span');
+      s.className = 'wf-hit';
+      s.textContent = h;
+      box.appendChild(s);
+    });
+    const confirmMode = wfMode() === 'confirm';
+    wfEl('wf-dlg-breathe').hidden = !confirmMode;
+    wfEl('wf-dlg-send').hidden = !confirmMode;
+    wfEl('wf-dlg-send').disabled = confirmMode; // chỉ bật sau khi hết 5 giây
+    wfResetBreath();
+    bd.classList.add('open');
+    dlg.classList.add('open');
+    wfCloseKeyboard();
+    return new Promise((resolve) => { wfDialogResolve = resolve; });
+  }
+
+  function closeWfDialog(sendIt) {
+    const dlg = wfEl('wf-dialog');
+    const bd = wfEl('wf-backdrop');
+    wfResetBreath();
+    dlg?.classList.remove('open');
+    bd?.classList.remove('open');
+    const r = wfDialogResolve;
+    wfDialogResolve = null;
+    wfRestoreKeyboard();
+    if (r) r(!!sendIt);
+  }
+
+  function wfResetBreath() {
+    if (wfBreathTimer) { clearInterval(wfBreathTimer); wfBreathTimer = null; }
+    const b = wfEl('wf-dlg-breathe');
+    if (b) { b.disabled = false; b.textContent = 'Hít thở 5 giây'; }
+  }
+
+  function wfStartBreath() {
+    const b = wfEl('wf-dlg-breathe');
+    const send = wfEl('wf-dlg-send');
+    if (!b || wfBreathTimer) return;
+    let left = 5;
+    b.disabled = true;
+    if (send) send.disabled = true;
+    b.textContent = `Hít thở… ${left}s`;
+    wfBreathTimer = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(wfBreathTimer);
+        wfBreathTimer = null;
+        b.disabled = false;
+        b.textContent = 'Hít thở 5 giây';
+        if (send) send.disabled = false;
+        return;
+      }
+      b.textContent = `Hít thở… ${left}s`;
+    }, 1000);
+  }
+
+  function showWfWarn() {
+    const card = wfEl('wf-warn');
+    if (!card) return;
+    card.textContent = '';
+    const t = document.createElement('div');
+    t.className = 'wf-warn-title';
+    t.textContent = wfTitle();
+    const x = document.createElement('div');
+    x.className = 'wf-warn-text';
+    x.textContent = wfText();
+    card.append(t, x);
+    card.classList.add('open');
+    if (wfWarnTimer) clearTimeout(wfWarnTimer);
+    wfWarnTimer = setTimeout(() => {
+      card.classList.remove('open');
+      wfWarnTimer = null;
+    }, 4000);
+  }
+
+  async function loadWordFilter() {
+    try {
+      const cached = lsGet(WF_CACHE_KEY);
+      if (cached && Array.isArray(cached.words)) wordFilterCfg = { ...WF_DEFAULT_CFG, ...cached };
+    } catch {}
+    try {
+      const { data, error } = await supabase.from('word_filter').select('*').eq('id', 1).maybeSingle();
+      if (!error && data) {
+        wordFilterCfg = {
+          enabled: data.enabled !== false,
+          mode: data.mode || 'confirm',
+          words: Array.isArray(data.words) ? data.words : [],
+          reminderTitle: data.reminder_title || WF_DEFAULT_CFG.reminderTitle,
+          reminderText: data.reminder_text || WF_DEFAULT_CFG.reminderText
+        };
+        lsSet(WF_CACHE_KEY, wordFilterCfg);
+      }
+    } catch {}
+    if (wfEditorOpen && !wfEditorReadonly && !wfEditorDirty) wfFillEditor();
+    return wordFilterCfg;
+  }
+
+  function subscribeWordFilter() {
+    if (wordFilterChannel) { try { supabase.removeChannel(wordFilterChannel); } catch {} wordFilterChannel = null; }
+    if (!currentUser) return;
+    wordFilterChannel = supabase.channel('word-filter-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'word_filter' }, () => {
+        loadWordFilter();
+      })
+      .subscribe();
+  }
+
+  // ── Form sửa / xem quy tắc ──
+  function wfIsAdmin() { return !!currentUser && currentUser.id === WF_ADMIN_ID; }
+
+  function wfSnapshot() {
+    return JSON.stringify({
+      enabled: !!wfEl('wf-enabled')?.checked,
+      mode: wfEl('wf-mode')?.value || 'confirm',
+      words: wfDraftWords,
+      title: wfEl('wf-title')?.value || '',
+      text: wfEl('wf-text')?.value || ''
+    });
+  }
+  function wfMarkDirty() {
+    if (wfEditorReadonly) return;
+    wfEditorDirty = wfSnapshot() !== wfEditorSnapshot;
+  }
+  function wfUpdateCounts() {
+    const c = wfEl('wf-words-count');
+    if (c) c.textContent = `${wfDraftWords.length}/200`;
+    const tc = wfEl('wf-title-count');
+    if (tc) tc.textContent = `${(wfEl('wf-title')?.value || '').length}/60`;
+    const xc = wfEl('wf-text-count');
+    if (xc) xc.textContent = `${(wfEl('wf-text')?.value || '').length}/300`;
+  }
+  function wfRenderChips() {
+    const box = wfEl('wf-chips');
+    if (!box) return;
+    box.textContent = '';
+    wfDraftWords.forEach((w, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'wf-chip';
+      chip.appendChild(document.createTextNode(w));
+      if (!wfEditorReadonly) {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'wf-chip-x';
+        x.setAttribute('aria-label', `Xóa từ ${w}`);
+        x.textContent = '✕';
+        x.addEventListener('click', () => {
+          wfDraftWords.splice(i, 1);
+          wfRenderChips();
+          wfUpdateCounts();
+          wfMarkDirty();
+        });
+        chip.appendChild(x);
+      }
+      box.appendChild(chip);
+    });
+  }
+  function wfFillEditor() {
+    wfEl('wf-enabled').checked = wfOn();
+    wfEl('wf-mode').value = wfMode();
+    wfEl('wf-mode').disabled = wfEditorReadonly;
+    wfEl('wf-title').value = wordFilterCfg.reminderTitle || '';
+    wfEl('wf-text').value = wordFilterCfg.reminderText || '';
+    wfRenderChips();
+    wfUpdateCounts();
+    const ro = wfEditorReadonly;
+    wfEl('wf-head-title').textContent = ro ? '🕊️ Quy tắc nhắn tin' : '🕊️ Bộ lọc lời lẽ';
+    const note = wfEl('wf-readonly-note');
+    note.hidden = !ro;
+    if (ro) note.textContent = `Chế độ: ${wfModeLabel(wfMode())} · Bộ lọc đang ${wfOn() ? 'bật' : 'tắt'}.`;
+    ['wf-switch-wrap', 'wf-add-row', 'wf-title-field', 'wf-text-field', 'wf-test-field', 'wf-actions']
+      .forEach((id) => { const el = wfEl(id); if (el) el.hidden = ro; });
+    const t = wfEl('wf-test');
+    if (t) { t.value = ''; wfRunTest(); }
+  }
+  function openWordFilterEditor(readonly) {
+    const ed = wfEl('filter-editor');
+    if (!ed) return;
+    if (!readonly && !wfIsAdmin()) readonly = true;
+    wfEditorReadonly = !!readonly;
+    wfDraftWords = (wordFilterCfg.words || []).slice();
+    wfFillEditor();
+    ed.hidden = false;
+    wfEditorOpen = true;
+    wfEditorDirty = false;
+    wfEditorSnapshot = wfSnapshot();
+    if (pinkKeyboardOpen) closePinkKeyboard();
+  }
+  function closeWordFilterEditor(force) {
+    const ed = wfEl('filter-editor');
+    if (!ed || ed.hidden) return;
+    if (!force && !wfEditorReadonly && wfEditorDirty) {
+      if (!confirm('Bỏ thay đổi?')) return;
+    }
+    ed.hidden = true;
+    wfEditorOpen = false;
+    wfEditorDirty = false;
+  }
+  function wfAddWord() {
+    const inp = wfEl('wf-add');
+    if (!inp) return;
+    const w = wfNormalizeWord(inp.value);
+    if (!w) return;
+    if (w.length > 30) { showAppToast('Mỗi từ tối đa 30 ký tự'); return; }
+    if (wfDraftWords.length >= 200) { showAppToast('Tối đa 200 từ'); return; }
+    if (wfDraftWords.some((x) => wfNormalizeWord(x) === w)) { showAppToast('Từ này đã có'); inp.value = ''; return; }
+    wfDraftWords.push(w);
+    inp.value = '';
+    wfRenderChips();
+    wfUpdateCounts();
+    wfMarkDirty();
+  }
+  function wfRunTest() {
+    const out = wfEl('wf-test-out');
+    if (!out) return;
+    const v = (wfEl('wf-test')?.value || '').trim();
+    if (!v) { out.textContent = '—'; return; }
+    const hits = checkMessage(v, wfDraftWords);
+    out.textContent = hits.length ? `Khớp: ${hits.join(', ')}` : 'Không khớp từ nào';
+  }
+  async function wfSave() {
+    const btn = wfEl('wf-save');
+    if (!btn || wfEditorReadonly) return;
+    const payload = {
+      id: 1,
+      enabled: !!wfEl('wf-enabled').checked,
+      mode: wfEl('wf-mode').value,
+      words: wfDraftWords.slice(0, 200),
+      reminder_title: String(wfEl('wf-title').value || '').slice(0, 60),
+      reminder_text: String(wfEl('wf-text').value || '').slice(0, 300)
+    };
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Đang lưu…';
+    try {
+      const { data, error } = await supabase.from('word_filter').update(payload).eq('id', 1).select('*');
+      if (error) throw error;
+      if (!data || !data.length) { const e = new Error('permission denied'); e.code = '42501'; throw e; }
+      wordFilterCfg = {
+        enabled: payload.enabled,
+        mode: payload.mode,
+        words: payload.words,
+        reminderTitle: payload.reminder_title,
+        reminderText: payload.reminder_text
+      };
+      lsSet(WF_CACHE_KEY, wordFilterCfg);
+      wfEditorSnapshot = wfSnapshot();
+      wfEditorDirty = false;
+      showAppToast('Đã lưu bộ lọc 💗');
+    } catch (err) {
+      const msg = String((err && (err.message || err.code)) || '');
+      if ((err && err.code === '42501') || /permission|row-level|not authorized|403|JWT/i.test(msg)) {
+        showAppToast('Bạn không có quyền sửa');
+      } else {
+        showAppToast('Lưu thất bại, thử lại');
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+  function wfRestoreDefaults() {
+    if (wfEditorReadonly) return;
+    if (!confirm('Khôi phục từ mặc định?')) return;
+    wfDraftWords = WF_DEFAULT_WORDS.slice();
+    wfRenderChips();
+    wfUpdateCounts();
+    wfMarkDirty();
+  }
+  function applyWordFilterVisibility() {
+    const admin = wfIsAdmin();
+    const e = wfEl('btn-filter-edit');
+    const v = wfEl('btn-filter-view');
+    if (e) e.hidden = !admin;
+    if (v) v.hidden = admin;
+    if (!admin && wfEditorOpen) closeWordFilterEditor(true);
+  }
+
+  // hook test console
+  window.__wf = {
+    check: checkMessage,
+    cfg: () => wordFilterCfg,
+    setCfg: (c) => { wordFilterCfg = { ...WF_DEFAULT_CFG, ...c }; },
+    load: loadWordFilter,
+    open: openWordFilterEditor,
+    close: closeWordFilterEditor,
+    isAdmin: wfIsAdmin,
+    dialogOpen: () => !!(wfEl('wf-dialog') && wfEl('wf-dialog').classList.contains('open')),
+    warnOpen: () => !!(wfEl('wf-warn') && wfEl('wf-warn').classList.contains('open')),
+    DEFAULT_WORDS: WF_DEFAULT_WORDS
+  };
+
+  wfEl('btn-filter-edit')?.addEventListener('click', () => { closeFuncPanel(); openWordFilterEditor(false); });
+  wfEl('btn-filter-view')?.addEventListener('click', () => { closeFuncPanel(); openWordFilterEditor(true); });
+  wfEl('wf-close')?.addEventListener('click', () => closeWordFilterEditor(false));
+  wfEl('wf-dlg-edit')?.addEventListener('click', () => closeWfDialog(false));
+  wfEl('wf-dlg-breathe')?.addEventListener('click', wfStartBreath);
+  wfEl('wf-dlg-send')?.addEventListener('click', () => closeWfDialog(true));
+  wfEl('wf-add-btn')?.addEventListener('click', wfAddWord);
+  wfEl('wf-add')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); wfAddWord(); }
+  });
+  wfEl('wf-save')?.addEventListener('click', wfSave);
+  wfEl('wf-defaults')?.addEventListener('click', wfRestoreDefaults);
+  wfEl('wf-test')?.addEventListener('input', wfRunTest);
+  ['wf-enabled', 'wf-mode', 'wf-title', 'wf-text'].forEach((id) => {
+    wfEl(id)?.addEventListener('input', () => { wfUpdateCounts(); wfMarkDirty(); });
+    wfEl(id)?.addEventListener('change', () => { wfUpdateCounts(); wfMarkDirty(); });
+  });
+
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {
     try {
@@ -6297,6 +6748,9 @@
       applyProfileIdentity();
       subscribeProfilesChange();
       subscribeDuty();
+      loadWordFilter();
+      subscribeWordFilter();
+      applyWordFilterVisibility();
       loadStreakCache();
       refreshStreak();
       checkFestive();
@@ -6320,6 +6774,8 @@
     if (coverChannel) { supabase.removeChannel(coverChannel); coverChannel = null; }
     if (profilesChannel) { try { supabase.removeChannel(profilesChannel); } catch {} profilesChannel = null; }
     if (dutyChannel) { try { supabase.removeChannel(dutyChannel); } catch {} dutyChannel = null; }
+    if (wordFilterChannel) { try { supabase.removeChannel(wordFilterChannel); } catch {} wordFilterChannel = null; }
+    applyWordFilterVisibility();
     if (profileOpen) closeProfile(true);
     if (dutyOpen) closeDuty();
     hideTyping();

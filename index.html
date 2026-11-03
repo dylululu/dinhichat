@@ -2946,6 +2946,84 @@
     .rev-title { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
     .rev-btn { display: block; width: 100%; min-height: 44px; margin-top: 8px; border: 0; border-radius: 12px; background: #f3f3f3; font-size: 15px; font-weight: 700; cursor: pointer; }
     .rev-danger { background: #e53935; color: #fff; }
+    /* ── Bộ lọc lời lẽ: hộp nhắc nhở, thẻ warn, form sửa ── */
+    [hidden] { display: none !important; }
+    .func-item[hidden] { display: none; }
+    .wf-backdrop { position: absolute; inset: 0; z-index: 800; display: none; background: rgba(0, 0, 0, .45); }
+    .wf-backdrop.open { display: block; }
+    .wf-dialog {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      top: 50%;
+      z-index: 810;
+      box-sizing: border-box;
+      display: none;
+      transform: translateY(-50%);
+      background: #fff;
+      border-radius: 18px;
+      padding: 16px 14px calc(14px + env(safe-area-inset-bottom));
+      box-shadow: 0 14px 40px rgba(0, 0, 0, .28);
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .wf-dialog.open { display: block; animation: wf-pop .2s ease; }
+    @keyframes wf-pop { from { opacity: 0; transform: translateY(calc(-50% + 12px)); } to { opacity: 1; transform: translateY(-50%); } }
+    .wf-ico { font-size: 30px; text-align: center; }
+    .wf-title { font-size: 17px; font-weight: 800; text-align: center; margin: 6px 0 4px; }
+    .wf-text { font-size: 14px; line-height: 1.5; text-align: center; margin-bottom: 10px; }
+    .wf-hits { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+    .wf-hit { background: #fce4ec; color: #ad1457; font-size: 13px; font-weight: 700; padding: 5px 10px; border-radius: 999px; }
+    .wf-btn { display: block; width: 100%; min-height: 46px; margin-top: 8px; border: 0; border-radius: 12px; background: #f3f3f3; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .wf-btn-send { background: #e91e63; color: #fff; }
+    .wf-btn:disabled { opacity: .55; cursor: default; }
+    .wf-warn {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      bottom: 92px;
+      z-index: 700;
+      display: none;
+      box-sizing: border-box;
+      background: #fff;
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 26px rgba(0, 0, 0, .22);
+    }
+    .wf-warn.open { display: block; animation: wf-warn-in .25s ease; }
+    @keyframes wf-warn-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .wf-warn-title { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+    .wf-warn-text { font-size: 13px; line-height: 1.45; }
+    /* Form sửa / xem quy tắc (lớp phủ trong #app, dùng lại .be-*) */
+    .wf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .wf-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      min-height: 44px;
+      padding: 0 4px 0 12px;
+      border-radius: 999px;
+      background: #fce4ec;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .wf-chip-x {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, .08);
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .wf-add-row { display: flex; gap: 8px; }
+    .wf-add-row .be-input { flex: 1; min-width: 0; }
+    .wf-add-row .be-btn { flex: 0 0 auto; padding: 0 16px; }
+    .wf-test-out { margin-top: 8px; font-size: 13px; font-weight: 700; color: #ad1457; line-height: 1.5; }
+    .wf-readonly-note { font-size: 13px; color: #8a8a8a; font-weight: 600; margin-bottom: 10px; }
+    @media (prefers-reduced-motion: reduce) {
+      .wf-dialog.open, .wf-warn.open { animation: none; }
+    }
     @media (prefers-color-scheme: dark) {
       .festive-banner { background: var(--bn-c1, #ad1457); }
       .festive-banner::before { background: linear-gradient(90deg, var(--bn-c1, #ad1457), var(--bn-c2, #f06292), var(--bn-c1, #ad1457)); background-size: 200% 100%; }
@@ -2964,6 +3042,15 @@
       .rev-sheet { background: #2a1f30; color: #fff; }
       .rev-btn { background: #3a2b40; color: #fff; }
       .rev-danger { background: #e53935; }
+      .wf-dialog { background: #2a1f30; color: #fff; }
+      .wf-btn { background: #3a2b40; color: #fff; }
+      .wf-btn-send { background: #e91e63; color: #fff; }
+      .wf-hit { background: #4a2038; color: #f8bbd0; }
+      .wf-warn { background: #2a1f30; color: #fff; }
+      .wf-chip { background: #4a2038; color: #fff; }
+      .wf-chip-x { background: rgba(255, 255, 255, .14); color: #fff; }
+      .wf-test-out { color: #f8bbd0; }
+      .wf-readonly-note { color: #9d8f9a; }
     }
     @media (prefers-reduced-motion: reduce) {
       .festive-track { animation: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
@@ -3207,13 +3294,78 @@
       </div>
     </div>
 
+    <!-- Bộ lọc lời lẽ (admin) / Quy tắc nhắn tin (chỉ đọc) -->
+    <div id="filter-editor" class="banner-editor" hidden>
+      <div class="be-head">
+        <span class="be-head-title" id="wf-head-title">🕊️ Bộ lọc lời lẽ</span>
+        <button id="wf-close" class="be-close" type="button" aria-label="Đóng">✕</button>
+      </div>
+      <div class="be-body">
+        <div class="wf-readonly-note" id="wf-readonly-note" hidden>Bạn chỉ xem quy tắc nhắn tin, không sửa được.</div>
+        <label class="be-switch" id="wf-switch-wrap">
+          <input type="checkbox" id="wf-enabled">
+          <span class="be-switch-track" aria-hidden="true"><span class="be-switch-knob"></span></span>
+          <span>Bật bộ lọc</span>
+        </label>
+        <div class="be-field" id="wf-mode-field">
+          <label class="be-label" for="wf-mode">Chế độ</label>
+          <select id="wf-mode" class="be-select">
+            <option value="warn">Nhắc nhở &amp; vẫn gửi</option>
+            <option value="confirm">Nhắc nhở &amp; hỏi lại</option>
+            <option value="block">Chặn hẳn</option>
+          </select>
+        </div>
+        <div class="be-field">
+          <label class="be-label" for="wf-add">Danh sách từ <span id="wf-words-count" class="be-count">0/200</span></label>
+          <div class="wf-chips" id="wf-chips"></div>
+          <div class="wf-add-row" id="wf-add-row">
+            <input id="wf-add" class="be-input" type="text" maxlength="30" placeholder="Thêm từ…" autocapitalize="off"
+              autocomplete="off">
+            <button id="wf-add-btn" class="be-btn" type="button">Thêm</button>
+          </div>
+        </div>
+        <div class="be-field" id="wf-title-field">
+          <label class="be-label" for="wf-title">Tiêu đề nhắc nhở <span id="wf-title-count" class="be-count">0/60</span></label>
+          <input id="wf-title" class="be-input" type="text" maxlength="60">
+        </div>
+        <div class="be-field" id="wf-text-field">
+          <label class="be-label" for="wf-text">Nội dung nhắc nhở <span id="wf-text-count" class="be-count">0/300</span></label>
+          <textarea id="wf-text" class="be-input" rows="3" maxlength="300"></textarea>
+        </div>
+        <div class="be-field" id="wf-test-field">
+          <label class="be-label" for="wf-test">Thử bộ lọc</label>
+          <input id="wf-test" class="be-input" type="text" placeholder="Gõ thử một câu…" autocapitalize="off"
+            autocomplete="off">
+          <div id="wf-test-out" class="wf-test-out">—</div>
+        </div>
+        <div class="be-actions" id="wf-actions">
+          <button id="wf-defaults" class="be-btn be-btn-ghost" type="button">Khôi phục từ mặc định</button>
+          <button id="wf-save" class="be-btn be-btn-primary" type="button">Lưu</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Thu hồi tin nhắn (giữ lâu trên tin của mình) -->
     <div id="rev-backdrop" class="rev-backdrop"></div>
     <section id="rev-sheet" class="rev-sheet" role="dialog" aria-label="Thu hồi tin nhắn">
       <div class="rev-title">Thu hồi tin nhắn này?</div>
       <button id="rev-confirm" class="rev-btn rev-danger" type="button">Thu hồi</button>
-      <button id="rev-cancel" class="rev-btn" type="button">Huỷ</button>
+      <div id="rev-cancel" class="rev-btn" type="button">Huỷ</div>
     </section>
+
+    <!-- Hộp nhắc nhở bộ lọc lời lẽ (confirm / block) -->
+    <div id="wf-backdrop" class="wf-backdrop"></div>
+    <section id="wf-dialog" class="wf-dialog" role="dialog" aria-modal="true" aria-labelledby="wf-dlg-title">
+      <div class="wf-ico" aria-hidden="true">🕊️💗</div>
+      <div class="wf-title" id="wf-dlg-title"></div>
+      <div class="wf-text" id="wf-dlg-text"></div>
+      <div class="wf-hits" id="wf-dlg-hits"></div>
+      <button id="wf-dlg-edit" class="wf-btn" type="button">Sửa lại tin nhắn</button>
+      <button id="wf-dlg-breathe" class="wf-btn" type="button">Hít thở 5 giây</button>
+      <button id="wf-dlg-send" class="wf-btn wf-btn-send" type="button">Vẫn gửi</button>
+    </section>
+    <!-- Thẻ nhắc nhở 4 giây (warn, không chặn) -->
+    <div id="wf-warn" class="wf-warn" role="status"></div>
 
     <main class="chat-messages" id="messages-container">
       <!-- Bubbles will be rendered here -->
@@ -3259,6 +3411,12 @@
         </button>
         <button class="func-item" id="btn-duty" type="button" role="menuitem" aria-label="Lịch trực">
           <span class="func-icon" aria-hidden="true">🩺</span><span class="func-label">Lịch trực</span>
+        </button>
+        <button class="func-item" id="btn-filter-edit" type="button" role="menuitem" aria-label="Bộ lọc lời lẽ" hidden>
+          <span class="func-icon" aria-hidden="true">🕊️</span><span class="func-label">Bộ lọc lời lẽ</span>
+        </button>
+        <button class="func-item" id="btn-filter-view" type="button" role="menuitem" aria-label="Quy tắc nhắn tin" hidden>
+          <span class="func-icon" aria-hidden="true">🕊️</span><span class="func-label">Quy tắc nhắn tin</span>
         </button>
       </div>
       <div id="sticker-panel" class="sticker-panel" aria-hidden="true">
