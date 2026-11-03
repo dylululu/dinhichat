@@ -5476,13 +5476,12 @@
 
   // ─── Lịch trực điều dưỡng ───────────────────────────────────────────────────
   const DUTY_DEFAULTS = {
-    anchor_date: '2026-11-02',
-    anchor_index: 2,
     pattern: 'HC,HC,TRUC,NGHI',
     owner_name: null,
     hc_time: '07:00-16:30',
     truc_time: '07:00-07:00 (24h)'
   };
+  const DUTY_DEFAULT_ANCHOR = { start_date: '2026-11-02', shift_index: 2 }; // dự phòng khi chưa nạp được duty_anchors
   const DUTY_SHIFTS = {
     HC: { label: 'Hành chính', tag: 'HC', icon: '☀️', color: '#1e88e5' },
     TRUC: { label: 'Trực', tag: 'TRỰC', icon: '🌙', color: '#e53935' },
@@ -5515,6 +5514,14 @@
   const dutyDayCount = document.getElementById('duty-day-count');
   const dutySetSheet = document.getElementById('duty-set-sheet');
   const dutySetBackdrop = document.getElementById('duty-set-backdrop');
+  const dutyRotSheet = document.getElementById('duty-rot-sheet');
+  const dutyRotBackdrop = document.getElementById('duty-rot-backdrop');
+  const dutyRotDate = document.getElementById('duty-rot-date');
+  const dutyRotShifts = document.getElementById('duty-rot-shifts');
+  const dutyRotNote = document.getElementById('duty-rot-note');
+  const dutyRotCount = document.getElementById('duty-rot-count');
+  const dutyRotPreview = document.getElementById('duty-rot-preview');
+  const dutyRotHist = document.getElementById('duty-rot-hist');
 
   let dutyOpen = false;
   let dutyWasPink = false;
@@ -5524,6 +5531,9 @@
   let dutyOvMonth = '';
   let dutyMonth = '';          // 'yyyy-mm' đang xem
   let dutyDay = '';            // ngày đang mở sheet
+  let dutyAnchors = [];        // [{start_date, shift_index, note}] tăng dần — các mốc "đổi tua"
+  let dutyAnchorsLoaded = false;
+  let dutyRotIdx = 2;          // ca đang chọn ở sheet Đổi tua (1=HC1, 2=HC2, 3=Trực, 4=Nghỉ)
   let dutyChannel = null;
   let dutyTick = null;         // đồng hồ đếm giờ hết ca trực
 
@@ -5550,15 +5560,25 @@
     return parts.length ? parts : DUTY_DEFAULTS.pattern.split(',');
   }
 
-  // ── Quy luật ca: idx = (((ngày - mốc) mod n) + n) mod n + (vị trí mốc - 1), rồi mod n ──
-  // 0=HC1, 1=HC2, 2=Trực, 3=Nghỉ (theo pattern; đúng cho quá khứ + tương lai, qua năm)
+  // ── Mốc "tua": mốc lớn nhất ≤ ngày; trước mốc đầu → tính ngược từ mốc đầu tiên ──
+  function dutyAnchorFor(dateStr) {
+    if (!dutyAnchors.length) return DUTY_DEFAULT_ANCHOR;
+    let found = null;
+    for (const a of dutyAnchors) {
+      if (String(a.start_date) <= dateStr) found = a; else break; // danh sách đã sort tăng dần
+    }
+    return found || dutyAnchors[0];
+  }
+
+  // ── Quy luật ca: idx = ((shift_index-1) + (ngày - mốc)) mod n (mod dương, Date.UTC) ──
+  // 0=HC1, 1=HC2, 2=Trực, 3=Nghỉ; mốc trước giữ nguyên, mốc sau tính lại từ mốc mới
   function dutyInfo(dateStr) {
     const pattern = dutyPattern();
     const n = pattern.length;
-    const anchor = dutyCfg.anchor_date || DUTY_DEFAULTS.anchor_date;
-    const anchorIdx = Math.min(Math.max(Number(dutyCfg.anchor_index) || DUTY_DEFAULTS.anchor_index, 1), n);
-    const diff = dutyDiffDays(dateStr, anchor);
-    const idx = ((((diff % n) + n) % n) + (anchorIdx - 1)) % n;
+    const a = dutyAnchorFor(dateStr);
+    const diff = dutyDiffDays(dateStr, a.start_date); // âm nếu trước mốc đầu (tính ngược)
+    const base = Math.min(Math.max(Number(a.shift_index) || 1, 1), n) - 1;
+    const idx = ((((base + diff) % n) + n) % n);
     const raw = pattern[idx] || 'HC';
     const code = DUTY_SHIFTS[raw] ? raw : 'KHAC';
     // "ngày 2/2" = ngày thứ mấy trong số ngày cùng ca này của chu kỳ (HC1/HC2 → 2/2)
@@ -5572,7 +5592,7 @@
     if (ov && DUTY_SHIFTS[ov.shift]) return ov.shift;
     return getShift(dateStr);
   }
-  window.__duty = { getShift, dutyInfo, dutyShiftOf, DUTY_SHIFTS }; // hook test console
+  window.__duty = { getShift, dutyInfo, dutyShiftOf, DUTY_SHIFTS, anchorFor: dutyAnchorFor, anchors: () => dutyAnchors }; // hook test console
 
   // ── Nạp dữ liệu: cache localStorage + fetch, realtime giữ mới ──
   async function loadDutyCfg(force) {
@@ -5585,8 +5605,6 @@
       const { data, error } = await supabase.from('duty_settings').select('*').eq('id', 1).single();
       if (!error && data) {
         dutyCfg = {
-          anchor_date: data.anchor_date || DUTY_DEFAULTS.anchor_date,
-          anchor_index: data.anchor_index || DUTY_DEFAULTS.anchor_index,
           pattern: data.pattern || DUTY_DEFAULTS.pattern,
           owner_name: data.owner_name || null,
           hc_time: data.hc_time ?? DUTY_DEFAULTS.hc_time,
@@ -5619,6 +5637,24 @@
         dutyOv = new Map((data || []).map((r) => [r.day, r]));
         dutyOvMonth = month;
         lsSet('dnc_duty_ov_v1', { month, rows: data || [] });
+      }
+    } catch {}
+  }
+
+  async function loadDutyAnchors(force) {
+    if (!force) {
+      if (dutyAnchorsLoaded) return;
+      try {
+        const cached = lsGet('dnc_duty_anchors_v1');
+        if (Array.isArray(cached) && cached.length) { dutyAnchors = cached; dutyAnchorsLoaded = true; }
+      } catch {}
+    }
+    try {
+      const { data, error } = await supabase.from('duty_anchors').select('*').order('start_date');
+      if (!error && data) {
+        dutyAnchors = data.slice().sort((a, b) => (a.start_date < b.start_date ? -1 : 1));
+        dutyAnchorsLoaded = true;
+        lsSet('dnc_duty_anchors_v1', dutyAnchors);
       }
     } catch {}
   }
@@ -5757,13 +5793,14 @@
       const meta = DUTY_SHIFTS[code];
       stats[code] = (stats[code] || 0) + 1;
       const ov = dutyOv.get(ds);
+      const isRot = dutyAnchors.some((a) => a.start_date === ds); // ngày bắt đầu tua mới
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'duty-cell' + (ds === today ? ' is-today' : '') + (ov ? ' has-ov' : '');
+      btn.className = 'duty-cell' + (ds === today ? ' is-today' : '') + (ov ? ' has-ov' : '') + (isRot ? ' has-rot' : '');
       btn.dataset.day = ds;
       btn.style.backgroundColor = meta.color;
       btn.style.color = '#fff';
-      btn.setAttribute('aria-label', `Ngày ${d} tháng ${m}: ${meta.label}${ov ? ', đã điều chỉnh' : ''}`);
+      btn.setAttribute('aria-label', `Ngày ${d} tháng ${m}: ${meta.label}${ov ? ', đã điều chỉnh' : ''}${isRot ? ', bắt đầu tua mới' : ''}`);
       const num = document.createElement('span');
       num.className = 'duty-cell-num';
       num.textContent = String(d);
@@ -5816,10 +5853,10 @@
     dutyScreen.classList.add('open');
     dutyScreen.setAttribute('aria-hidden', 'false');
     dutyMonth = vnDateString().slice(0, 7);
-    await loadDutyCfg();               // cache (nếu có) → vẽ ngay
-    await loadDutyOverrides(dutyMonth); // cache tháng + 1 query between
-    renderDutyAll();
-    loadDutyCfg(true).then(() => { if (dutyOpen) renderDutyAll(); }); // luôn lấy bản mới nhất
+    await Promise.all([loadDutyCfg(), loadDutyOverrides(dutyMonth), loadDutyAnchors()]);
+    renderDutyAll(); // cache có gì vẽ trước đó; thiếu mốc → dùng mốc dự phòng 02/11=HC2
+    Promise.all([loadDutyCfg(true), loadDutyAnchors(true)]) // luôn lấy bản mới nhất
+      .then(() => { if (dutyOpen) renderDutyAll(); });
     const scroll = document.getElementById('duty-scroll');
     if (scroll) scroll.scrollTop = 0;
   }
@@ -5830,10 +5867,11 @@
     dutyTickStop();
     closeDutyDay();
     closeDutySet();
+    closeDutyRot();
     dutyScreen.classList.remove('open');
     dutyScreen.setAttribute('aria-hidden', 'true');
     const active = document.activeElement;
-    if (active && (dutyScreen.contains(active) || dutyDaySheet?.contains(active) || dutySetSheet?.contains(active)) && active.blur) {
+    if (active && (dutyScreen.contains(active) || dutyDaySheet?.contains(active) || dutySetSheet?.contains(active) || dutyRotSheet?.contains(active)) && active.blur) {
       active.blur();
     }
     if (dutyWasPink) {
@@ -5938,8 +5976,6 @@
   function openDutySet() {
     if (!dutySetSheet) return;
     document.getElementById('duty-set-owner').value = dutyCfg.owner_name || '';
-    document.getElementById('duty-set-anchor').value = dutyCfg.anchor_date || DUTY_DEFAULTS.anchor_date;
-    document.getElementById('duty-set-index').value = String(dutyCfg.anchor_index || DUTY_DEFAULTS.anchor_index);
     document.getElementById('duty-set-hc').value = dutyCfg.hc_time || '';
     document.getElementById('duty-set-truc').value = dutyCfg.truc_time || '';
     dutySetBackdrop.classList.add('open');
@@ -5956,17 +5992,14 @@
 
   async function saveDutySet() {
     const owner = document.getElementById('duty-set-owner').value.trim().slice(0, 30) || null;
-    const anchor = document.getElementById('duty-set-anchor').value || DUTY_DEFAULTS.anchor_date;
-    const idx = Math.min(Math.max(Number(document.getElementById('duty-set-index').value) || 2, 1), 4);
     const hc = document.getElementById('duty-set-hc').value.trim().slice(0, 40) || null;
     const truc = document.getElementById('duty-set-truc').value.trim().slice(0, 40) || null;
     try {
       const { error } = await supabase.from('duty_settings').update({
-        anchor_date: anchor, anchor_index: idx, owner_name: owner,
-        hc_time: hc, truc_time: truc, updated_at: new Date().toISOString()
+        owner_name: owner, hc_time: hc, truc_time: truc, updated_at: new Date().toISOString()
       }).eq('id', 1);
       if (error) throw error;
-      dutyCfg = { ...dutyCfg, anchor_date: anchor, anchor_index: idx, owner_name: owner, hc_time: hc, truc_time: truc };
+      dutyCfg = { ...dutyCfg, owner_name: owner, hc_time: hc, truc_time: truc };
       dutyCfgLoaded = true;
       lsSet('dnc_duty_cfg_v1', dutyCfg);
       renderDutyAll();
@@ -5980,11 +6013,176 @@
 
   async function dutyRestoreDefaults() {
     document.getElementById('duty-set-owner').value = '';
-    document.getElementById('duty-set-anchor').value = DUTY_DEFAULTS.anchor_date;
-    document.getElementById('duty-set-index').value = String(DUTY_DEFAULTS.anchor_index);
     document.getElementById('duty-set-hc').value = DUTY_DEFAULTS.hc_time;
     document.getElementById('duty-set-truc').value = DUTY_DEFAULTS.truc_time;
     await saveDutySet();
+  }
+
+  // ── Sheet Đổi tua (nhiều mốc theo thời gian) ──
+  function dutyShiftLabel(idx) { // 1=HC1, 2=HC2, 3=Trực, 4=Nghỉ
+    const labels = ['☀️ Hành chính 1', '☀️ Hành chính 2', '🌙 Trực', '🛌 Nghỉ'];
+    return labels[Math.min(Math.max(Number(idx) || 1, 1), 4) - 1];
+  }
+
+  // Tập mốc xem trước = hiện tại + mốc mới (trùng ngày thì thay), sort tăng dần
+  function dutyAnchorListWith(date, idx) {
+    const list = dutyAnchors.filter((a) => a.start_date !== date)
+      .concat([{ start_date: date, shift_index: idx }]);
+    list.sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0));
+    return list;
+  }
+
+  function dutyShiftWithList(list, dateStr) { // ca theo tập mốc (dùng cho xem trước)
+    const pattern = dutyPattern();
+    const n = pattern.length;
+    let a = null;
+    for (const x of list) { if (String(x.start_date) <= dateStr) a = x; else break; }
+    if (!a) a = list[0];
+    if (!a) return pattern[0] || 'HC';
+    const diff = dutyDiffDays(dateStr, a.start_date);
+    const base = Math.min(Math.max(Number(a.shift_index) || 1, 1), n) - 1;
+    return pattern[((((base + diff) % n) + n) % n)] || 'HC';
+  }
+
+  function updateDutyRotPreview() {
+    if (!dutyRotPreview || !dutyRotShifts) return;
+    const date = dutyRotDate.value || vnDateString();
+    dutyRotShifts.querySelectorAll('.duty-rot-shift').forEach((b) => {
+      const on = Number(b.dataset.idx) === dutyRotIdx;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    const list = dutyAnchorListWith(date, dutyRotIdx);
+    dutyRotPreview.replaceChildren();
+    for (let i = 0; i < 7; i++) {
+      const d = dutyAddDays(date, i);
+      const meta = DUTY_SHIFTS[dutyShiftWithList(list, d)];
+      const line = document.createElement('div');
+      const b = document.createElement('b');
+      b.textContent = dutyFmtDM(d);
+      line.append(b, ` ${dutyWdName(d)} — ${meta.icon} ${meta.label}`);
+      dutyRotPreview.append(line);
+    }
+  }
+
+  function renderDutyHist() {
+    if (!dutyRotHist) return;
+    dutyRotHist.replaceChildren();
+    const list = [...dutyAnchors].sort((a, b) => (a.start_date < b.start_date ? 1 : -1)); // mới nhất trước
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'duty-hint';
+      empty.textContent = 'Chưa có mốc tua';
+      dutyRotHist.append(empty);
+      return;
+    }
+    for (const a of list) {
+      const row = document.createElement('div');
+      row.className = 'duty-hist-row';
+      const main = document.createElement('div');
+      main.className = 'duty-hist-main';
+      const t = document.createElement('span');
+      t.textContent = `${dutyFmtDM(a.start_date)} ${String(a.start_date).slice(0, 4)} — ${dutyShiftLabel(a.shift_index)}`;
+      main.append(t);
+      if (a.note) {
+        const nt = document.createElement('span');
+        nt.className = 'duty-hist-note';
+        nt.textContent = a.note;
+        main.append(nt);
+      }
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'duty-hist-del';
+      del.textContent = '✕';
+      del.setAttribute('aria-label', `Xóa mốc ${dutyFmtDM(a.start_date)}`);
+      del.disabled = list.length <= 1; // không cho xóa mốc cuối cùng còn lại
+      del.dataset.day = a.start_date;
+      row.append(main, del);
+      dutyRotHist.append(row);
+    }
+  }
+
+  function openDutyRot() {
+    if (!dutyRotSheet) return;
+    const today = vnDateString();
+    dutyRotDate.value = today;
+    const cur = getShift(today); // mặc chọn ca hiện tại của hôm nay (HC1/HC2/Trực/Nghỉ)
+    dutyRotIdx = cur === 'HC' ? (dutyInfo(today).idx === 0 ? 1 : 2) : cur === 'TRUC' ? 3 : cur === 'NGHI' ? 4 : 1;
+    dutyRotNote.value = '';
+    dutyRotCount.textContent = '0';
+    updateDutyRotPreview();
+    renderDutyHist();
+    dutyRotBackdrop.classList.add('open');
+    dutyRotSheet.classList.add('open');
+    dutyRotSheet.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDutyRot() {
+    if (!dutyRotSheet || !dutyRotSheet.classList.contains('open')) return;
+    dutyRotBackdrop.classList.remove('open');
+    dutyRotSheet.classList.remove('open');
+    dutyRotSheet.setAttribute('aria-hidden', 'true');
+  }
+
+  async function applyDutyRot() {
+    if (!currentUser) return;
+    const date = dutyRotDate.value || vnDateString();
+    const note = (dutyRotNote.value || '').trim().slice(0, 200);
+    let msg = `Từ ${dutyFmtDM(date)} các ngày sau sẽ tính lại, các ngày trước giữ nguyên.`;
+    if (date < vnDateString()) msg += ' Sẽ đổi cả lịch từ ngày đó.';
+    if (!window.confirm(msg)) return;
+    try {
+      const { error } = await supabase.from('duty_anchors').upsert(
+        { start_date: date, shift_index: dutyRotIdx, note: note || null, created_by: currentUser.id, created_at: new Date().toISOString() },
+        { onConflict: 'start_date' }
+      );
+      if (error) throw error;
+      await loadDutyAnchors(true);
+      renderDutyAll();
+      updateDutyRotPreview();
+      renderDutyHist();
+      showAppToast('Đã đổi tua 💚');
+    } catch (err) {
+      console.error('applyDutyRot error:', err);
+      showAppToast('Không lưu được, thử lại');
+    }
+  }
+
+  async function deleteDutyAnchor(startDate) {
+    if (dutyAnchors.length <= 1) { showAppToast('Không thể xóa mốc cuối cùng'); return; }
+    if (!window.confirm(`Xóa mốc ${dutyFmtDM(startDate)}? Lịch sẽ quay về tua trước đó.`)) return;
+    try {
+      const { error } = await supabase.from('duty_anchors').delete().eq('start_date', startDate);
+      if (error) throw error;
+      await loadDutyAnchors(true);
+      renderDutyAll();
+      updateDutyRotPreview();
+      renderDutyHist();
+      showAppToast('Đã xóa mốc tua 💚');
+    } catch (err) {
+      console.error('deleteDutyAnchor error:', err);
+      showAppToast('Không xóa được, thử lại');
+    }
+  }
+
+  // "Đặt ngày này là…" trong sheet ngày → tạo mốc mới tại ngày đó (1 chạm)
+  async function setDutyDayAnchor(idx) {
+    if (!dutyDay || !currentUser) return;
+    const ds = dutyDay;
+    try {
+      const { error } = await supabase.from('duty_anchors').upsert(
+        { start_date: ds, shift_index: idx, note: null, created_by: currentUser.id, created_at: new Date().toISOString() },
+        { onConflict: 'start_date' }
+      );
+      if (error) throw error;
+      await loadDutyAnchors(true);
+      renderDutyAll();
+      closeDutyDay();
+      showAppToast(`Đã đặt ${dutyFmtDM(ds)} là tua mới 🔄`);
+    } catch (err) {
+      console.error('setDutyDayAnchor error:', err);
+      showAppToast('Không lưu được, thử lại');
+    }
   }
 
   // ── Realtime: đổi cài đặt/điều chỉnh → làm mới ngay, không giật ──
@@ -5998,6 +6196,13 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_overrides' }, () => {
         loadDutyOverrides(dutyMonth || vnDateString().slice(0, 7), true)
           .then(() => { if (dutyOpen) renderDutyAll(); });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'duty_anchors' }, () => {
+        loadDutyAnchors(true).then(() => {
+          if (!dutyOpen) return;
+          renderDutyAll();
+          if (dutyRotSheet?.classList.contains('open')) { updateDutyRotPreview(); renderDutyHist(); }
+        });
       })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
@@ -6051,6 +6256,28 @@
   dutySetBackdrop?.addEventListener('click', closeDutySet);
   document.getElementById('duty-set-save')?.addEventListener('click', saveDutySet);
   document.getElementById('duty-set-defaults')?.addEventListener('click', dutyRestoreDefaults);
+  document.getElementById('duty-rotate')?.addEventListener('click', openDutyRot);
+  document.getElementById('duty-rot-close')?.addEventListener('click', closeDutyRot);
+  dutyRotBackdrop?.addEventListener('click', closeDutyRot);
+  document.getElementById('duty-rot-apply')?.addEventListener('click', applyDutyRot);
+  dutyRotDate?.addEventListener('change', updateDutyRotPreview);
+  dutyRotShifts?.addEventListener('click', (e) => {
+    const b = e.target.closest('.duty-rot-shift');
+    if (!b) return;
+    dutyRotIdx = Number(b.dataset.idx) || 1;
+    updateDutyRotPreview();
+  });
+  dutyRotNote?.addEventListener('input', () => {
+    dutyRotCount.textContent = String((dutyRotNote.value || '').length);
+  });
+  dutyRotHist?.addEventListener('click', (e) => {
+    const b = e.target.closest('.duty-hist-del');
+    if (b && !b.disabled) deleteDutyAnchor(b.dataset.day);
+  });
+  document.getElementById('duty-day-anchor')?.addEventListener('click', (e) => {
+    const b = e.target.closest('.duty-rot-shift');
+    if (b) setDutyDayAnchor(Number(b.dataset.idx) || 1);
+  });
 
   // ─── initChat ────────────────────────────────────────────────────────────────
   async function initChat(user) {

@@ -2245,6 +2245,74 @@
     }
     .duty-btn.primary { background: #00897b; color: #fff; }
     .duty-btn.ghost { background: #f1f1f1; color: #666; }
+    .duty-bar-text { font-size: 13px; padding: 0 8px; white-space: nowrap; min-width: 0; }
+    .duty-sub-title { font-size: 14px; font-weight: 800; color: #00695c; margin-top: 14px; margin-bottom: 6px; }
+    .duty-rot-shifts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .duty-rot-shift {
+      min-height: 44px;
+      border: 1px solid #b9ded9;
+      border-radius: 10px;
+      background: #fff;
+      color: #12433e;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 4px 2px;
+    }
+    .duty-rot-shift.on { border: 2px solid #00897b; background: #e0f2f1; color: #00695c; }
+    .duty-rot-preview {
+      background: #f0faf8;
+      border: 1px dashed #b9ded9;
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: #35615c;
+      line-height: 1.7;
+    }
+    .duty-rot-preview b { color: #00695c; }
+    .duty-hint { font-size: 12px; color: #78a29d; margin-top: 4px; }
+    .duty-hist { margin-bottom: 4px; }
+    .duty-hist-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid #e3f2f1;
+    }
+    .duty-hist-row:last-child { border-bottom: 0; }
+    .duty-hist-main { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: #12433e; }
+    .duty-hist-note {
+      display: block;
+      font-size: 12px;
+      font-weight: 400;
+      color: #5f8a85;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .duty-hist-del {
+      flex: 0 0 auto;
+      min-width: 44px;
+      min-height: 44px;
+      border: 1px solid #ef9a9a;
+      border-radius: 10px;
+      background: #fff;
+      color: #e53935;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .duty-hist-del:disabled { opacity: .4; cursor: default; }
+    .duty-cell.has-rot::before {
+      content: '🔄';
+      position: absolute;
+      left: 3px;
+      bottom: 2px;
+      font-size: 9px;
+      line-height: 1;
+    }
     .btn-duty-quick {
       min-width: 34px;
       min-height: 34px;
@@ -2287,6 +2355,16 @@
       .duty-btn { background: #1f4a45; color: #b9dcd8; }
       .duty-btn.primary { background: #00897b; color: #fff; }
       .duty-btn.ghost { background: #2a3338; color: #cfd8dc; }
+      .duty-sub-title { color: #80cbc4; }
+      .duty-rot-shift { background: #15302d; border-color: #2c5a55; color: #d7efec; }
+      .duty-rot-shift.on { border-color: #4db6ac; background: #1c3f3b; color: #80cbc4; }
+      .duty-rot-preview { background: #102724; border-color: #2c5a55; color: #9cc5c0; }
+      .duty-rot-preview b { color: #80cbc4; }
+      .duty-hint { color: #78a29d; }
+      .duty-hist-row { border-bottom-color: #24514c; }
+      .duty-hist-main { color: #d7efec; }
+      .duty-hist-note { color: #8fb8b3; }
+      .duty-hist-del { background: #15302d; border-color: #7c3a3a; color: #ef9a9a; }
       .btn-duty-quick { background: rgba(40, 24, 34, .9); border-color: rgba(255, 111, 156, .45); }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -3234,6 +3312,7 @@
       <header class="duty-bar">
         <button id="duty-back" class="duty-bar-btn" type="button" aria-label="Quay lại">←</button>
         <div class="duty-bar-title" id="duty-title">🩺 Lịch trực</div>
+        <button id="duty-rotate" class="duty-bar-btn duty-bar-text" type="button" aria-label="Đổi tua trực">🔄 Đổi tua</button>
         <button id="duty-gear" class="duty-bar-btn" type="button" aria-label="Cài đặt lịch trực">⚙️</button>
         <svg class="duty-ecg" viewBox="0 0 300 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
           <path d="M0 8 H56 L62 3 L68 13 L74 5 L80 8 H140 L146 3 L152 13 L158 5 L164 8 H224 L230 3 L236 13 L242 5 L248 8 H300" />
@@ -3271,6 +3350,15 @@
         <select id="duty-day-shift" class="duty-select"></select>
       </div>
       <div class="duty-field">
+        <span class="duty-label">Đặt ngày này là… (tạo tua mới từ ngày này)</span>
+        <div class="duty-rot-shifts" id="duty-day-anchor" role="group" aria-label="Tạo mốc tua mới">
+          <button type="button" class="duty-rot-shift" data-idx="1">☀️ HC1</button>
+          <button type="button" class="duty-rot-shift" data-idx="2">☀️ HC2</button>
+          <button type="button" class="duty-rot-shift" data-idx="3">🌙 Trực</button>
+          <button type="button" class="duty-rot-shift" data-idx="4">🛌 Nghỉ</button>
+        </div>
+      </div>
+      <div class="duty-field">
         <label class="duty-label" for="duty-day-note">Ghi chú</label>
         <textarea id="duty-day-note" class="duty-textarea" maxlength="200" placeholder="VD: đổi ca với bé"></textarea>
         <div class="duty-counter"><span id="duty-day-count">0</span>/200</div>
@@ -3283,23 +3371,10 @@
     <div id="duty-set-backdrop" class="duty-sheet-backdrop"></div>
     <section id="duty-set-sheet" class="duty-sheet" role="dialog" aria-label="Cài đặt lịch trực" aria-hidden="true">
       <div class="duty-sheet-title">⚙️ Cài đặt lịch trực</div>
-      <div class="duty-sheet-sub">Mốc chu kỳ + giờ ca · mặc định 02/11/2026 = Hành chính 2</div>
+      <div class="duty-sheet-sub">Tên + giờ ca · tua đặt qua nút 🔄 Đổi tua</div>
       <div class="duty-field">
         <label class="duty-label" for="duty-set-owner">Tên điều dưỡng</label>
         <input id="duty-set-owner" class="duty-input" type="text" maxlength="30" autocomplete="off" placeholder="VD: Bé Ốc">
-      </div>
-      <div class="duty-field">
-        <label class="duty-label" for="duty-set-anchor">Ngày mốc</label>
-        <input id="duty-set-anchor" class="duty-input" type="date">
-      </div>
-      <div class="duty-field">
-        <label class="duty-label" for="duty-set-index">Ngày đó là ca số</label>
-        <select id="duty-set-index" class="duty-select">
-          <option value="1">Hành chính 1</option>
-          <option value="2">Hành chính 2</option>
-          <option value="3">Trực</option>
-          <option value="4">Nghỉ</option>
-        </select>
       </div>
       <div class="duty-field">
         <label class="duty-label" for="duty-set-hc">Giờ ca Hành chính</label>
@@ -3312,6 +3387,38 @@
       <button id="duty-set-save" class="duty-btn primary" type="button">Lưu</button>
       <button id="duty-set-defaults" class="duty-btn" type="button">Khôi phục mặc định</button>
       <button id="duty-set-close" class="duty-btn ghost" type="button">Đóng</button>
+    </section>
+
+    <div id="duty-rot-backdrop" class="duty-sheet-backdrop"></div>
+    <section id="duty-rot-sheet" class="duty-sheet" role="dialog" aria-label="Đổi tua trực" aria-hidden="true">
+      <div class="duty-sheet-title">🔄 Đổi tua trực</div>
+      <div class="duty-sheet-sub">Chu kỳ 4 ngày HC–HC–Trực–Nghỉ · đặt lại mốc từ ngày nào đó, các ngày trước giữ nguyên</div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-rot-date">Từ ngày</label>
+        <input id="duty-rot-date" class="duty-input" type="date">
+      </div>
+      <div class="duty-field">
+        <span class="duty-label">Ngày đó là ca</span>
+        <div class="duty-rot-shifts" id="duty-rot-shifts" role="radiogroup" aria-label="Ca của ngày mốc mới">
+          <button type="button" class="duty-rot-shift" data-idx="1">☀️ HC1</button>
+          <button type="button" class="duty-rot-shift" data-idx="2">☀️ HC2</button>
+          <button type="button" class="duty-rot-shift" data-idx="3">🌙 Trực</button>
+          <button type="button" class="duty-rot-shift" data-idx="4">🛌 Nghỉ</button>
+        </div>
+      </div>
+      <div class="duty-field">
+        <label class="duty-label" for="duty-rot-note">Ghi chú (không bắt buộc)</label>
+        <textarea id="duty-rot-note" class="duty-textarea" maxlength="200" placeholder="VD: đổi tua với bé"></textarea>
+        <div class="duty-counter"><span id="duty-rot-count">0</span>/200</div>
+      </div>
+      <div class="duty-field">
+        <span class="duty-label">Xem trước 7 ngày theo tua mới</span>
+        <div class="duty-rot-preview" id="duty-rot-preview" aria-live="polite"></div>
+      </div>
+      <button id="duty-rot-apply" class="duty-btn primary" type="button">Áp dụng tua mới</button>
+      <div class="duty-sub-title">Lịch sử đổi tua</div>
+      <div id="duty-rot-hist" class="duty-hist"></div>
+      <button id="duty-rot-close" class="duty-btn ghost" type="button">Đóng</button>
     </section>
 
     <section id="kb" aria-label="Bàn phím DiNhiChat" aria-hidden="true">
